@@ -139,7 +139,7 @@ pub fn run(req: Request, listener: &UnixListener, cfg: &Config) -> Result<PathBu
         .map_err(|e| e.to_string())?;
     let (ok, used): (bool, String) = reply.body().deserialize().map_err(|e| e.to_string())?;
     if !ok {
-        return Err("GNOME Shell refused to start recording".into());
+        return Err(crate::i18n::t("error.shell_refused").into());
     }
 
     // Only now, so the indicator appears exactly when recording runs.
@@ -163,7 +163,7 @@ pub fn run(req: Request, listener: &UnixListener, cfg: &Config) -> Result<PathBu
     if !req.gif {
         return Ok(used);
     }
-    crate::output::notify("Making GIF…", "Optimizing colors and frames", None);
+    crate::output::notify(crate::i18n::t("notify.making_gif"), crate::i18n::t("notify.making_gif_body"), None);
     let gif = target.unique_path("gif", req.width as u32, req.height as u32);
     let result = crate::gif::convert(&used, &gif, cfg.gif_max_width);
     let _ = std::fs::remove_file(&used);

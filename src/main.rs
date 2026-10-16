@@ -3,6 +3,7 @@ mod capture;
 mod cli;
 mod config;
 mod gif;
+mod i18n;
 mod icon;
 mod monitors;
 mod output;
@@ -25,14 +26,16 @@ use eframe::egui;
 fn main() {
     let args = cli::Cli::parse();
 
+    let mut cfg = config::Config::load();
+    i18n::set_language(&cfg.language);
+
     if args.settings {
         if let Err(e) = settings::run() {
-            fail(&format!("Could not open the settings: {e}"));
+            fail(&i18n::tf("error.open_settings", &[("error", &e.to_string())]));
         }
         return;
     }
 
-    let mut cfg = config::Config::load();
     output::set_notifications(cfg.notifications);
     if let Some(area) = &args.record {
         record_area(area, &cfg);
@@ -80,7 +83,7 @@ fn main() {
 
     let (desktop, shell) = match capture::capture() {
         Ok(c) => c,
-        Err(e) => fail(&format!("Could not capture the screen: {e}")),
+        Err(e) => fail(&i18n::tf("error.capture", &[("error", &e)])),
     };
 
     if monitors.is_empty() {
@@ -96,7 +99,7 @@ fn main() {
 
     if let Some(wanted) = &args.monitor {
         let Some(pos) = monitors.iter().position(|m| m.name == *wanted || m.index.to_string() == *wanted) else {
-            fail(&format!("No monitor named '{wanted}' (see --list-monitors)"));
+            fail(&i18n::tf("error.no_monitor", &[("name", wanted)]));
         };
         monitors = vec![monitors.swap_remove(pos)];
         images = vec![images.swap_remove(pos)];
@@ -106,7 +109,7 @@ fn main() {
         let image = if args.monitor.is_some() { &images[0] } else { &desktop };
         match output::save_image(image, &cfg.screenshots, cfg.image_format, cfg.jpeg_quality) {
             Ok(path) => println!("{}", path.display()),
-            Err(e) => fail(&format!("Could not save the screenshot: {e}")),
+            Err(e) => fail(&i18n::tf("error.save_screenshot", &[("error", &e)])),
         }
         return;
     }
@@ -172,7 +175,7 @@ fn main() {
         }),
     );
     if let Err(e) = result {
-        fail(&format!("Could not open the editor: {e}"));
+        fail(&i18n::tf("error.open_editor", &[("error", &e.to_string())]));
     }
     std::process::exit(0);
 }
@@ -180,7 +183,7 @@ fn main() {
 /// `queijo --record x,y,w,h,pointer`, started by the editor: records until
 /// another `queijo` (the shortcut pressed again) asks it to stop.
 fn record_area(area: &str, cfg: &config::Config) -> ! {
-    let Some(req) = record::Request::parse(area) else { fail(&format!("Bad recording area '{area}'")) };
+    let Some(req) = record::Request::parse(area) else { fail(&i18n::tf("error.bad_area", &[("area", area)])) };
     // The editor that started us holds the instance socket until it has exited,
     // so getting it also means its windows are gone.
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -189,7 +192,7 @@ fn record_area(area: &str, cfg: &config::Config) -> ! {
             break l;
         }
         if std::time::Instant::now() > deadline {
-            fail("Another Queijo is still running; recording cancelled");
+            fail(i18n::t("error.still_running"));
         }
         std::thread::sleep(Duration::from_millis(10));
     };
@@ -199,18 +202,20 @@ fn record_area(area: &str, cfg: &config::Config) -> ! {
         Ok(path) if req.gif => {
             let copied = std::fs::read(&path).is_ok_and(|data| output::copy_data("image/gif", &data).is_ok());
             let mb = std::fs::metadata(&path).map(|m| m.len() as f64 / 1e6).unwrap_or(0.0);
-            let detail =
-                format!("{} · {mb:.1} MB{}", output::tilde(&path), if copied { " · copied to clipboard" } else { "" });
-            output::notify("GIF saved", &detail, Some(&path));
+            let mut detail = format!("{} · {mb:.1} MB", output::tilde(&path));
+            if copied {
+                detail.push_str(&format!(" · {}", i18n::t("notify.gif_copied")));
+            }
+            output::notify(i18n::t("notify.gif_saved"), &detail, Some(&path));
             println!("{}", path.display());
             std::process::exit(0);
         }
         Ok(path) => {
-            output::notify("Screencast saved", &output::tilde(&path), None);
+            output::notify(i18n::t("notify.screencast_saved"), &output::tilde(&path), None);
             println!("{}", path.display());
             std::process::exit(0);
         }
-        Err(e) => fail(&format!("Recording failed: {e}")),
+        Err(e) => fail(&i18n::tf("error.recording_failed", &[("error", &e)])),
     }
 }
 

@@ -42,7 +42,7 @@ pub fn copy_data(mime: &str, data: &[u8]) -> Result<(), String> {
         [("xclip", &x), ("wl-copy", &wl)]
     };
 
-    let mut last_err = String::from("no clipboard tool found (install wl-clipboard)");
+    let mut last_err = crate::i18n::t("error.no_clipboard").to_string();
     for (program, args) in attempts {
         match pipe_to(program, args, png) {
             Ok(()) => return Ok(()),

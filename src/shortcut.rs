@@ -2,6 +2,8 @@
 
 use std::process::Command;
 
+use crate::i18n::t;
+
 const LIST_SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys";
 const LIST_KEY: &str = "custom-keybindings";
 const ITEM_SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding";
@@ -38,19 +40,19 @@ impl Action {
 
     pub fn title(self) -> &'static str {
         match self {
-            Action::Open => "Open Queijo",
-            Action::Video => "Record a video",
-            Action::Gif => "Record a GIF",
-            Action::FullScreen => "Save the whole screen",
+            Action::Open => t("action.open_title"),
+            Action::Video => t("action.video_title"),
+            Action::Gif => t("action.gif_title"),
+            Action::FullScreen => t("action.fullscreen_title"),
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            Action::Open => "Freeze the screen and select. Pressing it again stops a recording.",
-            Action::Video => "Open straight in screencast mode.",
-            Action::Gif => "Open straight in GIF mode.",
-            Action::FullScreen => "Save a screenshot of every monitor, without the editor.",
+            Action::Open => t("action.open_desc"),
+            Action::Video => t("action.video_desc"),
+            Action::Gif => t("action.gif_desc"),
+            Action::FullScreen => t("action.fullscreen_desc"),
         }
     }
 

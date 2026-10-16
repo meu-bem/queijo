@@ -2,6 +2,7 @@
 
 use std::f32::consts::{FRAC_PI_4, PI, TAU};
 
+use crate::i18n::t;
 use eframe::egui::{
     self, epaint::PathStroke, pos2, vec2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, StrokeKind,
     TextureHandle, Vec2,
@@ -48,14 +49,14 @@ impl Tool {
 
     pub fn name(self) -> &'static str {
         match self {
-            Tool::Pen => "Pen",
-            Tool::Line => "Line",
-            Tool::Arrow => "Arrow",
-            Tool::Rect => "Rectangle",
-            Tool::Ellipse => "Ellipse",
-            Tool::Marker => "Marker",
-            Tool::Text => "Text",
-            Tool::Pixelate => "Pixelate",
+            Tool::Pen => t("tool.pen"),
+            Tool::Line => t("tool.line"),
+            Tool::Arrow => t("tool.arrow"),
+            Tool::Rect => t("tool.rect"),
+            Tool::Ellipse => t("tool.ellipse"),
+            Tool::Marker => t("tool.marker"),
+            Tool::Text => t("tool.text"),
+            Tool::Pixelate => t("tool.pixelate"),
         }
     }
 

@@ -8,6 +8,7 @@ use eframe::egui::{
 };
 
 use crate::config::{self, Config, ImageFormat, StartArea, StartKind, Target};
+use crate::i18n::{self, t, tf};
 use crate::paint::{self, ACCENT, PALETTE, TEXT, TEXT_DIM};
 use crate::shortcut::{self, Action};
 
@@ -30,11 +31,11 @@ impl Section {
 
     fn title(self) -> &'static str {
         match self {
-            Section::General => "General",
-            Section::Shortcuts => "Shortcuts",
-            Section::Files => "Files",
-            Section::Recording => "Recording",
-            Section::Editor => "Editor",
+            Section::General => t("settings.general"),
+            Section::Shortcuts => t("settings.shortcuts"),
+            Section::Files => t("settings.files"),
+            Section::Recording => t("settings.recording"),
+            Section::Editor => t("settings.editor"),
         }
     }
 
@@ -74,7 +75,7 @@ struct SettingsApp {
 pub fn run() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Queijo Settings")
+            .with_title(t("settings.window_title"))
             .with_app_id("queijo-settings")
             .with_icon(crate::icon::window_icon())
             .with_inner_size([860.0, 640.0])
@@ -167,8 +168,8 @@ impl eframe::App for SettingsApp {
         // Changes apply as you make them.
         if self.cfg != self.saved {
             match self.cfg.save() {
-                Ok(()) => self.status = Some(("Saved".into(), now, true)),
-                Err(e) => self.status = Some((format!("Could not save: {e}"), now, false)),
+                Ok(()) => self.status = Some((t("settings.saved").into(), now, true)),
+                Err(e) => self.status = Some((tf("settings.save_failed", &[("error", &e)]), now, false)),
             }
             self.saved = self.cfg.clone();
         }
@@ -225,47 +226,73 @@ impl SettingsApp {
 
     fn general(&mut self, ui: &mut Ui) {
         card(ui, |ui| {
-            row(ui, "Start in", "Which mode the editor opens in.", |ui| {
+            row(ui, t("settings.start_in"), t("settings.start_in_desc"), |ui| {
                 segmented(
                     ui,
                     &mut self.cfg.start_area,
                     &[
-                        (StartArea::Window, "Window"),
-                        (StartArea::Screen, "Screen"),
-                        (StartArea::Selection, "Selection"),
+                        (StartArea::Window, t("mode.window")),
+                        (StartArea::Screen, t("mode.screen")),
+                        (StartArea::Selection, t("mode.selection")),
                     ],
                 );
             });
             sep(ui);
-            row(ui, "Capture", "What the editor captures when it opens.", |ui| {
+            row(ui, t("settings.start_capture"), t("settings.start_capture_desc"), |ui| {
                 segmented(
                     ui,
                     &mut self.cfg.start_kind,
-                    &[(StartKind::Gif, "GIF"), (StartKind::Video, "Video"), (StartKind::Screenshot, "Screenshot")],
+                    &[
+                        (StartKind::Gif, t("settings.kind_gif")),
+                        (StartKind::Video, t("settings.kind_video")),
+                        (StartKind::Screenshot, t("settings.kind_screenshot")),
+                    ],
                 );
             });
             sep(ui);
-            row(ui, "Show the mouse pointer", "Include the pointer in captures by default (P toggles it).", |ui| {
+            row(ui, t("settings.pointer"), t("settings.pointer_desc"), |ui| {
                 toggle(ui, &mut self.cfg.show_pointer);
             });
         });
         card(ui, |ui| {
-            row(ui, "Ctrl+C also saves a file", "Copy to the clipboard and keep a file too.", |ui| {
+            row(ui, t("settings.copy_saves"), t("settings.copy_saves_desc"), |ui| {
                 toggle(ui, &mut self.cfg.copy_also_saves);
             });
             sep(ui);
-            row(ui, "Ctrl+S also copies", "Save the file and put the image on the clipboard.", |ui| {
+            row(ui, t("settings.save_copies"), t("settings.save_copies_desc"), |ui| {
                 toggle(ui, &mut self.cfg.save_also_copies);
             });
             sep(ui);
-            row(ui, "Notifications", "Tell me where files were saved. Errors are always shown.", |ui| {
+            row(ui, t("settings.notifications"), t("settings.notifications_desc"), |ui| {
                 toggle(ui, &mut self.cfg.notifications);
+            });
+            sep(ui);
+            row(ui, t("settings.language"), t("settings.language_desc"), |ui| {
+                self.language_picker(ui);
             });
         });
     }
 
+    fn language_picker(&mut self, ui: &mut Ui) {
+        let label = match i18n::LANGUAGES.iter().find(|l| l.code == self.cfg.language) {
+            Some(language) => language.name,
+            None => t("settings.language_auto"),
+        };
+        let before = self.cfg.language.clone();
+        egui::ComboBox::from_id_salt("language").selected_text(label).width(190.0).show_ui(ui, |ui| {
+            ui.selectable_value(&mut self.cfg.language, i18n::AUTO.to_string(), t("settings.language_auto"));
+            for language in i18n::LANGUAGES {
+                ui.selectable_value(&mut self.cfg.language, language.code.to_string(), language.name);
+            }
+        });
+        if self.cfg.language != before {
+            i18n::set_language(&self.cfg.language);
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(t("settings.window_title").into()));
+        }
+    }
+
     fn shortcuts(&mut self, ui: &mut Ui, now: f64) {
-        hint(ui, "These are GNOME keyboard shortcuts, so they work everywhere. Click a slot and press the keys; Backspace clears it.");
+        hint(ui, t("settings.shortcuts_hint"));
         card(ui, |ui| {
             for (n, action) in Action::ALL.into_iter().enumerate() {
                 if n > 0 {
@@ -285,7 +312,7 @@ impl SettingsApp {
                             self.capturing = if capturing { None } else { Some((action, slot)) };
                         }
                     }
-                    ui.menu_button(RichText::new("Presets").size(13.0).color(TEXT_DIM), |ui| {
+                    ui.menu_button(RichText::new(t("settings.presets")).size(13.0).color(TEXT_DIM), |ui| {
                         for (label, accel) in [
                             ("Print Screen", "Print"),
                             ("Shift+Print Screen", "<Shift>Print"),
@@ -305,9 +332,9 @@ impl SettingsApp {
                 for key in &keys {
                     if let Some((_, who, auto)) = self.conflicts.iter().find(|(k, _, _)| k == key) {
                         let text = if *auto {
-                            format!("{} was used by {who}; Queijo took it over.", shortcut::pretty(key))
+                            tf("settings.took_over", &[("key", &shortcut::pretty(key)), ("who", who)])
                         } else {
-                            format!("⚠ {} is also used by {who}. Only one of them will work.", shortcut::pretty(key))
+                            tf("settings.conflict", &[("key", &shortcut::pretty(key)), ("who", who)])
                         };
                         ui.label(RichText::new(text).size(12.0).color(if *auto { TEXT_DIM } else { ACCENT }));
                     }
@@ -315,17 +342,17 @@ impl SettingsApp {
             }
         });
         ui.add_space(4.0);
-        ui.label(RichText::new("Inside the editor").size(15.0).color(TEXT));
+        ui.label(RichText::new(t("settings.inside_editor")).size(15.0).color(TEXT));
         card(ui, |ui| {
             let rows = [
-                ("Copy / Save / Close", "Ctrl+C · Ctrl+S · Esc"),
-                ("Capture the whole screen", "Ctrl+A"),
-                ("Selection · Screen · Window", "S · C · W"),
-                ("Video · GIF · Pointer", "V · G · P"),
-                ("Pen, line, arrow, rect, ellipse, marker, text, pixelate", "P L A R E M T B"),
-                ("Undo · Redo", "Ctrl+Z · Ctrl+Shift+Z"),
-                ("Tool size", "Mouse wheel"),
-                ("Move the selection", "Arrow keys (Shift = 10 px)"),
+                (t("settings.keys_copy_save_close"), "Ctrl+C · Ctrl+S · Esc"),
+                (t("settings.keys_full_screen"), "Ctrl+A"),
+                (t("settings.keys_modes"), "S · C · W"),
+                (t("settings.keys_kinds"), "V · G · P"),
+                (t("settings.keys_tools"), "P L A R E M T B"),
+                (t("settings.keys_undo_redo"), "Ctrl+Z · Ctrl+Shift+Z"),
+                (t("settings.keys_tool_size"), t("settings.keys_tool_size_value")),
+                (t("settings.keys_move"), t("settings.keys_move_value")),
             ];
             for (n, (what, keys)) in rows.into_iter().enumerate() {
                 if n > 0 {
@@ -342,27 +369,28 @@ impl SettingsApp {
     }
 
     fn files(&mut self, ui: &mut Ui) {
-        hint(ui, "Name placeholders: {date} {time} {year} {month} {day} {hour} {minute} {second} {width} {height} {timestamp}");
+        let tokens = "{date} {time} {year} {month} {day} {hour} {minute} {second} {width} {height} {timestamp}";
+        hint(ui, &tf("settings.placeholders", &[("tokens", tokens)]));
         let ext = self.cfg.image_format.extension();
         for (folder, title, target, ext) in [
-            (Folder::Screenshots, "Screenshots", self.cfg.screenshots.clone(), ext),
-            (Folder::Videos, "Videos", self.cfg.videos.clone(), "webm"),
-            (Folder::Gifs, "GIFs", self.cfg.gifs.clone(), "gif"),
+            (Folder::Screenshots, t("settings.screenshots"), self.cfg.screenshots.clone(), ext),
+            (Folder::Videos, t("settings.videos"), self.cfg.videos.clone(), "webm"),
+            (Folder::Gifs, t("settings.gifs"), self.cfg.gifs.clone(), "gif"),
         ] {
             let mut target = target;
             ui.label(RichText::new(title).size(15.0).color(TEXT));
             card(ui, |ui| {
-                ui.label(RichText::new("Folder").color(TEXT_DIM));
+                ui.label(RichText::new(t("settings.folder")).color(TEXT_DIM));
                 ui.horizontal(|ui| {
                     let w = ui.available_width() - 100.0;
                     ui.add(egui::TextEdit::singleline(&mut target.folder).desired_width(w).margin(vec2(8.0, 6.0)));
                     let busy = self.browsing.is_some();
-                    if ui.add_enabled(!busy, egui::Button::new("Browse…")).clicked() {
+                    if ui.add_enabled(!busy, egui::Button::new(t("settings.browse"))).clicked() {
                         let start = target.dir();
                         self.browsing = Some((folder, std::thread::spawn(move || pick_folder(&start))));
                     }
                 });
-                ui.label(RichText::new("File name").color(TEXT_DIM));
+                ui.label(RichText::new(t("settings.file_name")).color(TEXT_DIM));
                 ui.add(
                     egui::TextEdit::singleline(&mut target.name)
                         .desired_width(ui.available_width())
@@ -371,11 +399,13 @@ impl SettingsApp {
                 let example = format!("{}.{ext}", config::render(&target.name, 1280, 720));
                 let path = Target { folder: target.folder.clone(), name: target.name.clone() }.dir().join(example);
                 ui.label(
-                    RichText::new(format!("Saved as: {}", crate::output::tilde(&path))).size(12.0).color(TEXT_DIM),
+                    RichText::new(tf("settings.saved_as", &[("path", &crate::output::tilde(&path))]))
+                        .size(12.0)
+                        .color(TEXT_DIM),
                 );
                 if folder == Folder::Screenshots {
                     sep(ui);
-                    row(ui, "Format", "PNG is lossless. JPEG is smaller for photos.", |ui| {
+                    row(ui, t("settings.format"), t("settings.format_desc"), |ui| {
                         segmented(
                             ui,
                             &mut self.cfg.image_format,
@@ -383,7 +413,7 @@ impl SettingsApp {
                         );
                     });
                     if self.cfg.image_format == ImageFormat::Jpeg {
-                        row(ui, "JPEG quality", "", |ui| {
+                        row(ui, t("settings.jpeg_quality"), "", |ui| {
                             ui.add(egui::Slider::new(&mut self.cfg.jpeg_quality, 50..=100));
                         });
                     }
@@ -399,37 +429,37 @@ impl SettingsApp {
 
     fn recording(&mut self, ui: &mut Ui) {
         card(ui, |ui| {
-            row(ui, "Countdown", "Seconds before recording starts, to get ready.", |ui| {
+            row(ui, t("settings.countdown"), t("settings.countdown_desc"), |ui| {
                 ui.add(egui::Slider::new(&mut self.cfg.countdown, 0..=10).suffix(" s"));
             });
             sep(ui);
-            row(ui, "Video frame rate", "Higher is smoother, files get bigger.", |ui| {
+            row(ui, t("settings.video_fps"), t("settings.video_fps_desc"), |ui| {
                 segmented(ui, &mut self.cfg.video_fps, &[(60, "60"), (30, "30"), (24, "24")]);
             });
         });
         card(ui, |ui| {
-            row(ui, "GIF frame rate", "GIF timing works in 1/100 s, so these are exact.", |ui| {
+            row(ui, t("settings.gif_fps"), t("settings.gif_fps_desc"), |ui| {
                 segmented(ui, &mut self.cfg.gif_fps, &[(50, "50"), (25, "25"), (20, "20"), (10, "10")]);
             });
             sep(ui);
-            row(ui, "GIF maximum width", "Wider recordings are scaled down; smaller files.", |ui| {
+            row(ui, t("settings.gif_width"), t("settings.gif_width_desc"), |ui| {
                 segmented(
                     ui,
                     &mut self.cfg.gif_max_width,
-                    &[(640, "640"), (960, "960"), (1280, "1280"), (0, "Original")],
+                    &[(640, "640"), (960, "960"), (1280, "1280"), (0, t("settings.original"))],
                 );
             });
         });
-        hint(ui, "Videos are WebM (VP8). GIFs are recorded losslessly first, then optimized with one palette, light dithering and only the changed parts of each frame.");
+        hint(ui, t("settings.recording_note"));
     }
 
     fn editor(&mut self, ui: &mut Ui, now: f64) {
         card(ui, |ui| {
-            row(ui, "Remember color and sizes", "Keep the last color and tool sizes for next time.", |ui| {
+            row(ui, t("settings.remember"), t("settings.remember_desc"), |ui| {
                 toggle(ui, &mut self.cfg.remember_tools);
             });
             sep(ui);
-            row(ui, "Color", "Starting annotation color.", |ui| {
+            row(ui, t("settings.color"), t("settings.color_desc"), |ui| {
                 for c in PALETTE.iter().rev() {
                     let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
                     let selected = self.cfg.color == [c.r(), c.g(), c.b()];
@@ -446,9 +476,9 @@ impl SettingsApp {
             });
         });
         card(ui, |ui| {
-            row(ui, "Reset all settings", "Back to defaults. Shortcuts are kept.", |ui| {
+            row(ui, t("settings.reset"), t("settings.reset_desc"), |ui| {
                 let armed = self.reset_armed.is_some_and(|t| now - t < 3.0);
-                let label = if armed { "Click again to reset" } else { "Reset" };
+                let label = if armed { t("settings.reset_confirm") } else { t("settings.reset_button") };
                 if ui.button(label).clicked() {
                     if armed {
                         self.cfg = Config::default();
@@ -460,7 +490,7 @@ impl SettingsApp {
             });
         });
         ui.label(
-            RichText::new(format!("Settings file: {}", crate::output::tilde(&Config::path())))
+            RichText::new(tf("settings.file_location", &[("path", &crate::output::tilde(&Config::path()))]))
                 .size(12.0)
                 .color(TEXT_DIM),
         );
@@ -491,8 +521,8 @@ impl SettingsApp {
         }
         self.refresh_conflicts();
         match shortcut::apply(&self.bindings) {
-            Ok(()) => self.status = Some(("Shortcut saved".into(), now, true)),
-            Err(e) => self.status = Some((format!("Could not change the shortcut: {e}"), now, false)),
+            Ok(()) => self.status = Some((t("settings.shortcut_saved").into(), now, true)),
+            Err(e) => self.status = Some((tf("settings.shortcut_failed", &[("error", &e)]), now, false)),
         }
         self.bindings = shortcut::current();
     }
@@ -523,7 +553,7 @@ impl SettingsApp {
                     let plain = !(modifiers.ctrl || modifiers.alt || modifiers.command || modifiers.mac_cmd);
                     // Bare letters would fire while typing anywhere.
                     if plain && name.chars().count() == 1 {
-                        self.status = Some(("Add Ctrl, Alt or Super to that key".into(), now, false));
+                        self.status = Some((t("settings.need_modifier").into(), now, false));
                         continue;
                     }
                     let mut accel = String::new();
@@ -597,9 +627,15 @@ fn card(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
     ui.add_space(6.0);
 }
 
+/// Room kept for the control on the right of a settings row.
+const CONTROL_RESERVE: f32 = 260.0;
+
 fn row(ui: &mut Ui, title: &str, description: &str, control: impl FnOnce(&mut Ui)) {
     ui.horizontal(|ui| {
+        // The text wraps instead of running under the control, whatever the language.
+        let text_width = (ui.available_width() - CONTROL_RESERVE).max(160.0);
         ui.vertical(|ui| {
+            ui.set_max_width(text_width);
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.label(RichText::new(title).size(14.0).color(TEXT));
             if !description.is_empty() {
@@ -665,9 +701,9 @@ fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &st
 
 fn keycap_slot(ui: &mut Ui, key: Option<&str>, capturing: bool, now: f64) -> egui::Response {
     let text = match (capturing, key) {
-        (true, _) => "Press keys…".to_string(),
+        (true, _) => t("settings.press_keys").to_string(),
         (false, Some(k)) => shortcut::pretty(k),
-        (false, None) => "Not set".to_string(),
+        (false, None) => t("settings.not_set").to_string(),
     };
     let galley = ui.painter().layout_no_wrap(text, FontId::proportional(13.0), TEXT);
     let size = vec2((galley.size().x + 24.0).max(96.0), 30.0);
@@ -693,7 +729,8 @@ fn keycap_slot(ui: &mut Ui, key: Option<&str>, capturing: bool, now: f64) -> egu
 
 fn pick_folder(start: &std::path::Path) -> Option<String> {
     let out = std::process::Command::new("zenity")
-        .args(["--file-selection", "--directory", "--title=Choose a folder"])
+        .args(["--file-selection", "--directory"])
+        .arg(format!("--title={}", t("settings.choose_folder")))
         .arg(format!("--filename={}/", start.display()))
         .output()
         .ok()?;

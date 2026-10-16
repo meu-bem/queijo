@@ -10,6 +10,7 @@ use eframe::egui::{
 use image::RgbaImage;
 
 use crate::config::{self, Config};
+use crate::i18n::t;
 use crate::monitors::Monitor;
 use crate::output;
 use crate::paint::{self, Annotation, Icon, Tool, ACCENT, PALETTE, TEXT, TEXT_DIM};
@@ -138,21 +139,21 @@ impl Item {
     fn tooltip(self) -> (String, &'static str) {
         match self {
             Item::Tool(t) => (t.name().to_string(), key_label(t.key())),
-            Item::Color => ("Color & size".into(), "scroll"),
-            Item::Undo => ("Undo".into(), "Ctrl+Z"),
-            Item::Redo => ("Redo".into(), "Ctrl+Shift+Z"),
-            Item::Save => ("Save".into(), "Ctrl+S"),
-            Item::Copy => ("Copy".into(), "Ctrl+C"),
-            Item::Close => ("Close".into(), "Esc"),
-            Item::Record => ("Start recording".into(), "Enter"),
-            Item::Mode(Area::Selection) => ("Select an area".into(), "S"),
-            Item::Mode(Area::Screen) => ("Capture a screen".into(), "C"),
-            Item::Mode(Area::Window) => ("Capture the active window".into(), "W"),
-            Item::Kind(Kind::Photo) => ("Screenshot".into(), "V"),
-            Item::Kind(Kind::Video) => ("Screencast".into(), "V"),
-            Item::Kind(Kind::Gif) => ("Animated GIF".into(), "G"),
-            Item::Pointer => ("Show pointer".into(), "P"),
-            Item::Settings => ("Settings".into(), ""),
+            Item::Color => (t("tip.color").into(), t("tip.scroll")),
+            Item::Undo => (t("tip.undo").into(), "Ctrl+Z"),
+            Item::Redo => (t("tip.redo").into(), "Ctrl+Shift+Z"),
+            Item::Save => (t("tip.save").into(), "Ctrl+S"),
+            Item::Copy => (t("tip.copy").into(), "Ctrl+C"),
+            Item::Close => (t("tip.close").into(), "Esc"),
+            Item::Record => (t("tip.record").into(), "Enter"),
+            Item::Mode(Area::Selection) => (t("tip.select_area").into(), "S"),
+            Item::Mode(Area::Screen) => (t("tip.capture_screen").into(), "C"),
+            Item::Mode(Area::Window) => (t("tip.capture_window").into(), "W"),
+            Item::Kind(Kind::Photo) => (t("tip.screenshot").into(), "V"),
+            Item::Kind(Kind::Video) => (t("tip.screencast").into(), "V"),
+            Item::Kind(Kind::Gif) => (t("tip.gif").into(), "G"),
+            Item::Pointer => (t("tip.pointer").into(), "P"),
+            Item::Settings => (t("tip.settings").into(), ""),
             Item::Sep => (String::new(), ""),
         }
     }
@@ -560,7 +561,7 @@ impl QueijoApp {
     }
 
     fn stop_key(&self) -> String {
-        self.stop_key.lock().unwrap().clone().unwrap_or_else(|| "the Queijo shortcut".into())
+        self.stop_key.lock().unwrap().clone().unwrap_or_else(|| t("record.shortcut_fallback").into())
     }
 
     fn has_window(&self) -> bool {
@@ -799,7 +800,7 @@ impl QueijoApp {
         self.countdown = None;
         match record::spawn(request) {
             Ok(()) => self.closing = Some(Closing { started: now, export: false }),
-            Err(e) => output::notify_error("Could not start recording", &e),
+            Err(e) => output::notify_error(t("notify.start_failed"), &e),
         }
     }
 
@@ -962,7 +963,7 @@ impl QueijoApp {
             if now - export.started > 2.0 {
                 // The backend never delivered a frame; export without the drawings.
                 eprintln!("queijo: framebuffer readback timed out");
-                output::notify_error("Queijo", "Couldn't render your drawings, so the image was saved without them.");
+                output::notify_error("Queijo", t("notify.drawings_failed"));
                 let action = export.action;
                 self.export = None;
                 self.annotations.clear();
@@ -1015,16 +1016,16 @@ impl QueijoApp {
             let save = action == Action::Save || cfg.copy_also_saves;
             if copy {
                 if let Err(e) = output::encode_png_fast(&image).and_then(|png| output::copy_png(&png)) {
-                    output::notify_error("Copy failed", &e);
+                    output::notify_error(t("notify.copy_failed"), &e);
                 }
             }
             if save {
                 match output::save_image(&image, &cfg.screenshots, cfg.image_format, cfg.jpeg_quality) {
                     Ok(path) => {
-                        let what = if copy { "Screenshot saved and copied" } else { "Screenshot saved" };
+                        let what = if copy { t("notify.saved_copied") } else { t("notify.saved") };
                         output::notify(what, &output::tilde(&path), Some(&path));
                     }
-                    Err(e) => output::notify_error("Save failed", &e),
+                    Err(e) => output::notify_error(t("notify.save_failed"), &e),
                 }
             }
             done.store(true, Ordering::SeqCst);
@@ -1610,20 +1611,20 @@ impl QueijoApp {
             return;
         }
         let (title, first_key) = match (self.area, self.video()) {
-            (Area::Selection, false) => ("Drag to select an area", ("Ctrl+A", "full screen")),
-            (Area::Screen, false) => ("Click a screen to capture it", ("Enter", "this screen")),
-            (Area::Window, false) if self.picker => ("Click a window to capture it", ("Enter", "active window")),
+            (Area::Selection, false) => (t("hint.select"), ("Ctrl+A", t("hint.full_screen"))),
+            (Area::Screen, false) => (t("hint.screen"), ("Enter", t("hint.this_screen"))),
+            (Area::Window, false) if self.picker => (t("hint.picker"), ("Enter", t("hint.active_window"))),
             (Area::Window, _) if self.visible_window().is_none() && self.window_job.is_none() => {
-                ("Couldn't find the active window — use Selection", ("S", "selection"))
+                (t("hint.window_missing"), ("S", t("hint.selection_key")))
             }
-            (Area::Window, false) => ("Click the window to capture it", ("Enter", "capture")),
-            (Area::Selection, true) => ("Drag over the area you want to record", ("Ctrl+A", "full screen")),
-            (Area::Screen, true) => ("Click the screen you want to record", ("Enter", "this screen")),
-            (Area::Window, true) if self.picker => ("Click the window you want to record", ("Enter", "active window")),
-            (Area::Window, true) => ("Click the window you want to record", ("Enter", "this window")),
+            (Area::Window, false) => (t("hint.window"), ("Enter", t("hint.capture"))),
+            (Area::Selection, true) => (t("hint.record_select"), ("Ctrl+A", t("hint.full_screen"))),
+            (Area::Screen, true) => (t("hint.record_screen"), ("Enter", t("hint.this_screen"))),
+            (Area::Window, true) if self.picker => (t("hint.record_window"), ("Enter", t("hint.active_window"))),
+            (Area::Window, true) => (t("hint.record_window"), ("Enter", t("hint.this_window"))),
         };
         let title = fg.layout_no_wrap(title.into(), FontId::proportional(13.5), TEXT.gamma_multiply(a));
-        let keys: Vec<_> = [first_key, ("Esc", "close")]
+        let keys: Vec<_> = [first_key, ("Esc", t("hint.close"))]
             .into_iter()
             .map(|(k, l)| {
                 (
@@ -1666,7 +1667,7 @@ impl QueijoApp {
         let since = *self.picker_since.get_or_insert(now);
         if self.shots_job.is_some() {
             let msg = fg.layout_no_wrap(
-                "Loading windows…".into(),
+                t("picker.loading").into(),
                 FontId::proportional(14.0),
                 TEXT_DIM.gamma_multiply(alpha),
             );
@@ -1677,7 +1678,7 @@ impl QueijoApp {
         if cards.is_empty() {
             if self.shots.is_empty() && idx == 0 {
                 let msg = fg.layout_no_wrap(
-                    "No windows on this workspace".into(),
+                    t("picker.empty").into(),
                     FontId::proportional(14.0),
                     TEXT_DIM.gamma_multiply(alpha),
                 );
@@ -2029,7 +2030,7 @@ impl QueijoApp {
             fg.rect_filled(bg.shrink2(vec2(2.0, 0.0)), 9, red.gamma_multiply(a));
             let dot = pos2(bg.left() + 22.0, bg.center().y);
             fg.circle_filled(dot, 5.0, Color32::WHITE.gamma_multiply(a));
-            let text = if self.kind == Kind::Gif { "Record GIF" } else { "Record" };
+            let text = if self.kind == Kind::Gif { t("record.button_gif") } else { t("record.button") };
             let label = fg.layout_no_wrap(text.into(), FontId::proportional(14.0), Color32::WHITE.gamma_multiply(a));
             fg.galley(pos2(dot.x + 12.0, bg.center().y - label.size().y / 2.0), label, Color32::WHITE);
         } else if h > 0.0 {
@@ -2071,9 +2072,9 @@ impl QueijoApp {
             Item::Close => paint::icon(fg, Icon::Close, r.center(), color),
             Item::Mode(area) => {
                 let (icon, label) = match area {
-                    Area::Selection => (Icon::Selection, "Selection"),
-                    Area::Screen => (Icon::Screen, "Screen"),
-                    Area::Window => (Icon::Window, "Window"),
+                    Area::Selection => (Icon::Selection, t("mode.selection")),
+                    Area::Screen => (Icon::Screen, t("mode.screen")),
+                    Area::Window => (Icon::Window, t("mode.window")),
                 };
                 let ic = pos2(r.left() + 20.0, r.center().y);
                 paint::icon(fg, icon, ic, color);
@@ -2263,7 +2264,7 @@ impl QueijoApp {
     fn paint_record_caption(&self, fg: &Painter, chrome: &Chrome, rect: Rect, a: f32) {
         let key = self.stop_key();
         let before =
-            fg.layout_no_wrap("Stop recording with".into(), FontId::proportional(13.0), TEXT_DIM.gamma_multiply(a));
+            fg.layout_no_wrap(t("record.stop_with").into(), FontId::proportional(13.0), TEXT_DIM.gamma_multiply(a));
         let cap = fg.layout_no_wrap(key, FontId::proportional(12.0), TEXT.gamma_multiply(a));
         let w = 14.0 + before.size().x + 8.0 + cap.size().x + 14.0 + 14.0;
         let h = chrome.hbar.height();
@@ -2341,14 +2342,15 @@ impl QueijoApp {
         let phase = ((elapsed - step as f64 * COUNTDOWN_STEP) / COUNTDOWN_STEP) as f32;
         let a = paint::ease_out((elapsed / 0.2) as f32);
 
-        let title =
-            if self.kind == Kind::Gif { "GIF recording starts in a moment" } else { "Recording starts in a moment" };
+        let title = if self.kind == Kind::Gif { t("record.countdown_title_gif") } else { t("record.countdown_title") };
         let title = fg.layout_no_wrap(title.into(), FontId::proportional(15.0), TEXT.gamma_multiply(a));
-        let stop1 = fg.layout_no_wrap("To stop, press".into(), FontId::proportional(13.0), TEXT_DIM.gamma_multiply(a));
+        let stop1 =
+            fg.layout_no_wrap(t("record.to_stop").into(), FontId::proportional(13.0), TEXT_DIM.gamma_multiply(a));
         let key = fg.layout_no_wrap(self.stop_key(), FontId::proportional(12.5), TEXT.gamma_multiply(a));
-        let stop2 = fg.layout_no_wrap("again".into(), FontId::proportional(13.0), TEXT_DIM.gamma_multiply(a));
+        let stop2 = fg.layout_no_wrap(t("record.again").into(), FontId::proportional(13.0), TEXT_DIM.gamma_multiply(a));
         let esc = fg.layout_no_wrap("Esc".into(), FontId::proportional(11.5), TEXT.gamma_multiply(a));
-        let cancel = fg.layout_no_wrap("cancel".into(), FontId::proportional(12.0), TEXT_DIM.gamma_multiply(a));
+        let cancel =
+            fg.layout_no_wrap(t("record.cancel").into(), FontId::proportional(12.0), TEXT_DIM.gamma_multiply(a));
         let stop_w = stop1.size().x + 8.0 + key.size().x + 14.0 + 8.0 + stop2.size().x;
         let size = vec2(title.size().x.max(stop_w) + 56.0, 196.0);
 

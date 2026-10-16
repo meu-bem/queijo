@@ -30,7 +30,7 @@ pub fn convert(input: &Path, output: &Path, max_width: u32) -> Result<(), String
         .args(["-vsync", "vfr", "-filter_complex", &filter, "-loop", "0"])
         .arg(output)
         .output()
-        .map_err(|e| format!("ffmpeg: {e} (install ffmpeg)"))?;
+        .map_err(|e| crate::i18n::tf("error.no_ffmpeg", &[("error", &e.to_string())]))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
     }

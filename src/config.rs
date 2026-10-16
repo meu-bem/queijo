@@ -56,6 +56,8 @@ pub struct Target {
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// `auto` (follow the system) or a language code such as `en` or `pt-BR`.
+    pub language: String,
     pub start_area: StartArea,
     pub start_kind: StartKind,
     pub show_pointer: bool,
@@ -87,6 +89,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            language: crate::i18n::AUTO.into(),
             start_area: StartArea::Selection,
             start_kind: StartKind::Screenshot,
             show_pointer: false,
