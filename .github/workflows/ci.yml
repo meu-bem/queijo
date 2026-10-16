@@ -10,10 +10,10 @@ on:
   workflow_dispatch: # run it by hand from the Actions tab
   workflow_call:
     inputs:
-      package:
-        description: Also build the release packages (the release workflow builds them itself)
+      skip_package:
+        description: Don't build the packages (the release workflow builds them itself)
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read
@@ -102,7 +102,8 @@ jobs:
 
   package:
     name: Build the packages
-    if: inputs.package != false
+    # `inputs` is empty on push and pull requests; `!null` is true, so they build.
+    if: ${{ !inputs.skip_package }}
     needs: [test, files]
     runs-on: ubuntu-22.04
     steps:
