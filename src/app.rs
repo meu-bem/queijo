@@ -473,11 +473,10 @@ pub struct QueijoApp {
 
 pub fn setup_style(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-    for (name, path) in [("ui", "/usr/share/fonts/truetype/ubuntu/Ubuntu-M.ttf")] {
-        if let Ok(bytes) = std::fs::read(path) {
-            fonts.font_data.insert(name.into(), Arc::new(egui::FontData::from_owned(bytes)));
-            fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, name.into());
-        }
+    // Ubuntu's own font when it is there; egui's built-in one otherwise.
+    if let Ok(bytes) = std::fs::read("/usr/share/fonts/truetype/ubuntu/Ubuntu-M.ttf") {
+        fonts.font_data.insert("ui".into(), Arc::new(egui::FontData::from_owned(bytes)));
+        fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, "ui".into());
     }
     ctx.set_fonts(fonts);
     ctx.set_visuals(egui::Visuals::dark());

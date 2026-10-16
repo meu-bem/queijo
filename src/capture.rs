@@ -191,7 +191,7 @@ fn locate(hay: &RgbaImage, needle: &RgbaImage) -> Option<(i64, i64)> {
         return None;
     }
     let to_u32 = |img: &RgbaImage| -> Vec<u32> {
-        img.as_raw().chunks_exact(4).map(|p| u32::from_le_bytes([p[0], p[1], p[2], p[3]])).collect()
+        img.as_raw().as_chunks::<4>().0.iter().map(|p| u32::from_le_bytes(*p)).collect()
     };
     let hay_px = to_u32(hay);
     let needle_px = to_u32(needle);

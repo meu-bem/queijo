@@ -52,6 +52,12 @@ only if `v<version>` doesn't exist yet:
 If the version was already released, the workflow ends with a notice and publishes
 nothing: merging documentation or fixes to `main` without a version bump is safe.
 
+## The Rust version
+
+The workflows use a pinned toolchain (`RUST_VERSION` in `ci.yml` and `release.yml`),
+so a new Rust release, with its new lints, can't turn CI red on its own. Raise it
+on purpose, in both files, after running the checks below with that version.
+
 ## Supported environments
 
 Packages are built, and tested, only for what has been validated: **Ubuntu 22.04

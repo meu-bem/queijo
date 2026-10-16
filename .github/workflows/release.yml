@@ -11,6 +11,9 @@ on:
 permissions:
   contents: write
 
+env:
+  RUST_VERSION: "1.99.1" # keep in step with ci.yml
+
 concurrency:
   group: release
   cancel-in-progress: false
@@ -46,8 +49,10 @@ jobs:
       - name: System packages
         if: steps.version.outputs.new == 'true'
         run: sudo apt-get update && sudo apt-get install -y zip
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         if: steps.version.outputs.new == 'true'
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
         if: steps.version.outputs.new == 'true'
       - name: Build the packages

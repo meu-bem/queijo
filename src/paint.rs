@@ -785,21 +785,30 @@ mod tests {
         );
     }
 
+    /// What a pass drew and uploaded.
+    struct Pass {
+        shapes: usize,
+        uploads: Vec<egui::epaint::ImageDelta>,
+    }
+
     /// Runs `f` inside an egui pass, which is what painting needs.
-    fn in_pass<R>(ctx: &egui::Context, f: impl FnOnce(&egui::Context, &Painter) -> R) -> (R, egui::FullOutput) {
+    fn in_pass<R>(ctx: &egui::Context, f: impl FnOnce(&egui::Context, &Painter) -> R) -> (R, Pass) {
         let mut f = Some(f);
         let mut result = None;
-        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
             let painter = ui.painter().clone();
             result = Some((f.take().unwrap())(ui.ctx(), &painter));
         });
-        (result.unwrap(), output)
+        // egui insists that texture uploads are handled before the output is dropped.
+        let uploads = std::mem::take(&mut output.textures_delta.set).into_values().flatten().collect();
+        output.textures_delta.clear();
+        (result.unwrap(), Pass { shapes: output.shapes.len(), uploads })
     }
 
     #[test]
     fn every_icon_and_annotation_paints() {
         let ctx = egui::Context::default();
-        let (_, output) = in_pass(&ctx, |_, painter| {
+        let (_, pass) = in_pass(&ctx, |_, painter| {
             let icons = [
                 Icon::Pen,
                 Icon::Line,
@@ -843,11 +852,7 @@ mod tests {
                 Stroke::new(1.0, Color32::WHITE),
             );
         });
-        assert!(!output.shapes.is_empty());
-    }
-
-    fn uploads(output: &egui::FullOutput) -> Vec<&egui::epaint::ImageDelta> {
-        output.textures_delta.set.values().flat_map(|deltas| deltas.iter()).collect()
+        assert!(pass.shapes > 0);
     }
 
     #[test]
@@ -862,17 +867,17 @@ mod tests {
             }
         });
         let screen = Rect::from_min_size(Pos2::ZERO, vec2(8.0, 4.0));
-        let (texture, output) = in_pass(&ctx, |ctx, _| pixelate(ctx, &image, screen, screen, 1.0, 8.0));
+        let (texture, pass) = in_pass(&ctx, |ctx, _| pixelate(ctx, &image, screen, screen, 1.0, 8.0));
         assert!(texture.is_some());
-        let uploaded: Vec<_> = uploads(&output).into_iter().filter(|d| d.image.width() == 1).collect();
+        let uploaded: Vec<_> = pass.uploads.iter().filter(|d| d.image.width() == 1).collect();
         assert_eq!(uploaded.len(), 1, "one block, so a 1x1 texture");
         let egui::ImageData::Color(pixels) = &uploaded[0].image;
         assert_eq!(pixels.pixels[0], Color32::from_rgb(100, 0, 100));
 
         // Smaller blocks keep more detail: 2 columns of 4 pixels each.
-        let (texture, output) = in_pass(&ctx, |ctx, _| pixelate(ctx, &image, screen, screen, 1.0, 4.0));
+        let (texture, pass) = in_pass(&ctx, |ctx, _| pixelate(ctx, &image, screen, screen, 1.0, 4.0));
         assert!(texture.is_some());
-        let pair: Vec<_> = uploads(&output).into_iter().filter(|d| d.image.width() == 2).collect();
+        let pair: Vec<_> = pass.uploads.iter().filter(|d| d.image.width() == 2).collect();
         let egui::ImageData::Color(pixels) = &pair[0].image;
         assert_eq!(pixels.pixels[0], Color32::from_rgb(200, 0, 0));
         assert_eq!(pixels.pixels[1], Color32::from_rgb(0, 0, 200));

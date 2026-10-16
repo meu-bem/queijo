@@ -18,6 +18,9 @@ permissions:
   contents: read
 
 env:
+  # Pinned so a new Rust release (and its new lints) can never turn CI red by itself;
+  # raise it on purpose, in this file and in release.yml.
+  RUST_VERSION: "1.99.1"
   CARGO_TERM_COLOR: always
   QUEIJO_NO_NOTIFY: "1"
 
@@ -32,8 +35,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg gifsicle gnome-settings-daemon-common gnome-shell-common libglib2.0-bin
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: Formatting
@@ -87,7 +91,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 \
             imagemagick bc x11-xserver-utils
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --locked --release
       - name: Settings window, in English and Portuguese
@@ -101,7 +107,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y zip
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo install cargo-deb --locked
       - run: scripts/build-packages.sh
