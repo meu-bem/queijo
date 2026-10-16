@@ -1,0 +1,112 @@
+name: CI
+
+# Runs on the `test` branch and on pull requests. The release workflow calls it
+# too, so nothing reaches `main` without passing the same checks.
+on:
+  push:
+    branches: [test]
+  pull_request:
+    branches: [test, main]
+  workflow_call:
+    inputs:
+      package:
+        description: Also build the release packages (the release workflow builds them itself)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  QUEIJO_NO_NOTIFY: "1"
+
+jobs:
+  test:
+    name: Format, lint and test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages
+        # ffmpeg and the GNOME schemas let the tests that use them run for real.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg gifsicle gnome-settings-daemon-common gnome-shell-common libglib2.0-bin
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Formatting
+        run: cargo fmt --check
+      - name: Lints
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Tests
+        env:
+          QUEIJO_REQUIRE_FFMPEG: "1"
+          QUEIJO_REQUIRE_GSETTINGS: "1"
+        run: cargo test --locked
+
+  files:
+    name: Extension, launchers, scripts and changelog
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y desktop-file-utils shellcheck
+      - name: GNOME Shell extension
+        run: |
+          ext=gnome-extension/queijo@meu-bem.github.io
+          node --check "$ext/extension.js"
+          python3 - "$ext" <<'PY'
+          import json, os, sys
+          path = sys.argv[1]
+          meta = json.load(open(os.path.join(path, "metadata.json")))
+          assert meta["uuid"] == os.path.basename(path), "the folder name must be the extension's uuid"
+          assert "42" in meta["shell-version"], "GNOME 42 is the validated version"
+          print("extension metadata ok:", meta["uuid"])
+          PY
+      - name: Launchers
+        run: desktop-file-validate packaging/*.desktop
+      - name: Shell scripts
+        run: shellcheck scripts/*.sh packaging/install.sh gnome-extension/install.sh
+      - name: The changelog has an entry for this version
+        run: |
+          version=$(scripts/version.sh)
+          scripts/release-notes.sh "$version" > /dev/null
+          echo "CHANGELOG.md documents $version"
+
+  smoke:
+    name: Starts and draws (virtual display)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 \
+            imagemagick bc x11-xserver-utils
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked --release
+      - name: Settings window, in English and Portuguese
+        run: xvfb-run -a -s "-screen 0 1280x800x24" scripts/smoke-test.sh target/release/queijo
+
+  package:
+    name: Build the packages
+    if: inputs.package != false
+    needs: [test, files]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y zip
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-deb --locked
+      - run: scripts/build-packages.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: queijo-packages
+          path: dist/
+          retention-days: 14

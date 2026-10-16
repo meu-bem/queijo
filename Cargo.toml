@@ -24,6 +24,43 @@ wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
 [dev-dependencies]
 tempfile = "3"
 
+[package.metadata.deb]
+name = "queijo"
+section = "graphics"
+priority = "optional"
+license-file = ["LICENSE", "0"]
+# Made by scripts/build-packages.sh from CHANGELOG.md.
+changelog = "target/debian-changelog"
+extended-description = """\
+Queijo freezes the screen on every monitor so you can select an area, a whole \
+screen or a window, annotate it and copy or save it. It also records \
+screencasts and animated GIFs, and has a settings window for shortcuts, \
+folders, file names and language (English and Portuguese). \
+A bundled GNOME Shell extension adds a window picker and a recording \
+indicator in the top bar; enable it with \
+`gnome-extensions enable queijo@meu-bem.github.io`."""
+# The graphics libraries are opened at run time, so they are not found automatically.
+depends = """$auto, gnome-shell (>= 42), libglib2.0-bin, wl-clipboard, libnotify-bin, ffmpeg, zenity, \
+libwayland-client0, libxkbcommon0, libxkbcommon-x11-0, libegl1, libgl1, libx11-6, libxcb1, \
+libxcursor1, libxi6, libxrandr2"""
+recommends = "gifsicle, xclip, gnome-screenshot, x11-xserver-utils"
+assets = [
+    ["target/release/queijo", "usr/bin/", "755"],
+    ["packaging/queijo.desktop", "usr/share/applications/", "644"],
+    ["packaging/queijo-settings.desktop", "usr/share/applications/", "644"],
+    ["assets/icons/16x16/queijo.png", "usr/share/icons/hicolor/16x16/apps/", "644"],
+    ["assets/icons/24x24/queijo.png", "usr/share/icons/hicolor/24x24/apps/", "644"],
+    ["assets/icons/32x32/queijo.png", "usr/share/icons/hicolor/32x32/apps/", "644"],
+    ["assets/icons/48x48/queijo.png", "usr/share/icons/hicolor/48x48/apps/", "644"],
+    ["assets/icons/64x64/queijo.png", "usr/share/icons/hicolor/64x64/apps/", "644"],
+    ["assets/icons/128x128/queijo.png", "usr/share/icons/hicolor/128x128/apps/", "644"],
+    ["assets/icons/256x256/queijo.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+    ["assets/icons/512x512/queijo.png", "usr/share/icons/hicolor/512x512/apps/", "644"],
+    ["gnome-extension/queijo@meu-bem.github.io/extension.js", "usr/share/gnome-shell/extensions/queijo@meu-bem.github.io/", "644"],
+    ["gnome-extension/queijo@meu-bem.github.io/metadata.json", "usr/share/gnome-shell/extensions/queijo@meu-bem.github.io/", "644"],
+    ["README.md", "usr/share/doc/queijo/", "644"],
+]
+
 [profile.release]
 opt-level = 3
 lto = "thin"

@@ -1,0 +1,69 @@
+name: Release
+
+# Every push to `main` is checked; if the version in Cargo.toml has not been
+# released yet, it is tagged and published with its packages.
+# To release: bump `version` in Cargo.toml (and Cargo.lock), add the matching
+# section to CHANGELOG.md on `test`, and merge `test` into `main`.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      package: false
+
+  release:
+    name: Publish the release
+    needs: ci
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the tags, to know what was already released
+      - name: Is this version new?
+        id: version
+        run: |
+          version=$(scripts/version.sh)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::v$version was already released. Bump the version in Cargo.toml and CHANGELOG.md to publish again."
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Release notes
+        if: steps.version.outputs.new == 'true'
+        run: scripts/release-notes.sh "${{ steps.version.outputs.version }}" > notes.md
+      - name: System packages
+        if: steps.version.outputs.new == 'true'
+        run: sudo apt-get update && sudo apt-get install -y zip
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.version.outputs.new == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.version.outputs.new == 'true'
+      - name: Build the packages
+        if: steps.version.outputs.new == 'true'
+        run: |
+          cargo install cargo-deb --locked
+          scripts/build-packages.sh
+      - name: Publish
+        if: steps.version.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          prerelease=""
+          case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "v$VERSION" dist/* $prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Queijo $VERSION" \
+            --notes-file notes.md
