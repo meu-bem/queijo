@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Queijo
+Comment=Screenshots, screencasts and GIFs
+Exec=queijo
+Icon=queijo
+Terminal=false
+Categories=Utility;
+Keywords=screenshot;screencast;gif;capture;
+Actions=settings;
+
+[Desktop Action settings]
+Name=Settings
+Exec=queijo --settings

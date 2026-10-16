@@ -1,0 +1,33 @@
+[package]
+name = "queijo"
+version = "0.1.0"
+edition = "2021"
+description = "Screenshot, screencast and GIF tool for GNOME on Linux"
+authors = ["Mateus Santos <a.mateussm1.5@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+keywords = ["screenshot", "screencast", "gif", "gnome", "wayland"]
+categories = ["multimedia::video", "gui"]
+publish = false
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+chrono = "0.4"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

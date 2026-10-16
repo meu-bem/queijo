@@ -1,0 +1,94 @@
+//! Client for the "Queijo helper" GNOME Shell extension (see `gnome-extension/`),
+//! which can list and capture windows — something GNOME offers no public API for.
+
+use std::path::PathBuf;
+
+use image::RgbaImage;
+
+const DEST: &str = "org.gnome.Shell";
+const PATH: &str = "/io/github/meu_bem/Queijo";
+const IFACE: &str = "io.github.meu_bem.Queijo";
+
+/// A window on the active workspace, as the extension reports it.
+pub struct WindowInfo {
+    pub id: u64,
+    pub title: String,
+    pub app: String,
+    /// The visible window, in desktop coordinates: [x, y, width, height].
+    pub frame: [i32; 4],
+    /// What `CaptureWindow` returns (frame plus client-side shadows).
+    pub buffer: [i32; 4],
+    pub focused: bool,
+}
+
+/// A window ready for the picker.
+pub struct WindowShot {
+    pub title: String,
+    pub app: String,
+    pub frame: [i32; 4],
+    pub focused: bool,
+    /// The window's own pixels (even where other windows cover it).
+    pub image: Option<RgbaImage>,
+    /// Small copy for the picker.
+    pub thumb: Option<RgbaImage>,
+}
+
+type Row = (u64, String, String, String, i32, i32, i32, i32, i32, i32, i32, i32, bool);
+
+/// `None` when the extension isn't running (not installed, or not loaded yet).
+pub fn list_windows(conn: &zbus::blocking::Connection) -> Option<Vec<WindowInfo>> {
+    let reply = conn.call_method(Some(DEST), PATH, Some(IFACE), "ListWindows", &()).ok()?;
+    let (rows,): (Vec<Row>,) = reply.body().deserialize().ok()?;
+    Some(
+        rows.into_iter()
+            .map(|(id, title, app, _class, fx, fy, fw, fh, bx, by, bw, bh, focused)| WindowInfo {
+                id,
+                title,
+                app,
+                frame: [fx, fy, fw, fh],
+                buffer: [bx, by, bw, bh],
+                focused,
+            })
+            .collect(),
+    )
+}
+
+/// Captures every window (in parallel) and cuts each down to its frame.
+pub fn capture_all(conn: &zbus::blocking::Connection, windows: Vec<WindowInfo>) -> Vec<WindowShot> {
+    let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    let jobs: Vec<_> = windows
+        .into_iter()
+        .map(|w| {
+            let path = dir.join(format!("queijo-{}-win-{}.png", std::process::id(), w.id));
+            let ok = path.to_str().is_some_and(|file| {
+                conn.call_method(Some(DEST), PATH, Some(IFACE), "CaptureWindow", &(w.id, file))
+                    .ok()
+                    .and_then(|r| r.body().deserialize::<(bool,)>().ok())
+                    .is_some_and(|(ok,)| ok)
+            });
+            std::thread::spawn(move || {
+                let image = ok.then(|| image::open(&path).ok()).flatten().map(|i| i.to_rgba8());
+                let _ = std::fs::remove_file(&path);
+                let image = image.and_then(|img| crop_to_frame(&img, w.frame, w.buffer));
+                let thumb = image.as_ref().map(|img| {
+                    let s = (480.0 / img.width() as f32).min(300.0 / img.height() as f32).min(1.0);
+                    let (tw, th) = ((img.width() as f32 * s) as u32, (img.height() as f32 * s) as u32);
+                    image::imageops::thumbnail(img, tw.max(1), th.max(1))
+                });
+                WindowShot { title: w.title, app: w.app, frame: w.frame, focused: w.focused, image, thumb }
+            })
+        })
+        .collect();
+    jobs.into_iter().filter_map(|j| j.join().ok()).collect()
+}
+
+fn crop_to_frame(img: &RgbaImage, [fx, fy, fw, fh]: [i32; 4], [bx, by, bw, _]: [i32; 4]) -> Option<RgbaImage> {
+    let s = img.width() as f32 / bw.max(1) as f32;
+    let px = |v: i32| (v as f32 * s).round().max(0.0) as u32;
+    let (x, y) = (px(fx - bx), px(fy - by));
+    if x >= img.width() || y >= img.height() {
+        return None;
+    }
+    let (w, h) = (px(fw).min(img.width() - x), px(fh).min(img.height() - y));
+    (w > 0 && h > 0).then(|| image::imageops::crop_imm(img, x, y, w, h).to_image())
+}

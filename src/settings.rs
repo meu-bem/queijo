@@ -1,0 +1,714 @@
+//! The settings window (`queijo --settings`, or the gear in the editor).
+
+use std::thread::JoinHandle;
+
+use eframe::egui::{
+    self, pos2, vec2, Align, Color32, CornerRadius, Event, FontId, Id, Key, Layout, Margin, RichText, Sense, Stroke,
+    StrokeKind, Ui,
+};
+
+use crate::config::{self, Config, ImageFormat, StartArea, StartKind, Target};
+use crate::paint::{self, ACCENT, PALETTE, TEXT, TEXT_DIM};
+use crate::shortcut::{self, Action};
+
+const BG: Color32 = Color32::from_rgb(20, 20, 24);
+const CARD: Color32 = Color32::from_rgb(30, 30, 35);
+const FIELD: Color32 = Color32::from_rgb(40, 40, 47);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Section {
+    General,
+    Shortcuts,
+    Files,
+    Recording,
+    Editor,
+}
+
+impl Section {
+    const ALL: [Section; 5] = [Section::General, Section::Shortcuts, Section::Files, Section::Recording, Section::Editor];
+
+    fn title(self) -> &'static str {
+        match self {
+            Section::General => "General",
+            Section::Shortcuts => "Shortcuts",
+            Section::Files => "Files",
+            Section::Recording => "Recording",
+            Section::Editor => "Editor",
+        }
+    }
+
+    fn icon(self) -> paint::Icon {
+        match self {
+            Section::General => paint::Icon::Selection,
+            Section::Shortcuts => paint::Icon::Keyboard,
+            Section::Files => paint::Icon::Folder,
+            Section::Recording => paint::Icon::Video,
+            Section::Editor => paint::Icon::Pen,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Folder {
+    Screenshots,
+    Videos,
+    Gifs,
+}
+
+struct SettingsApp {
+    logo: egui::TextureHandle,
+    cfg: Config,
+    saved: Config,
+    section: Section,
+    bindings: Vec<(Action, Vec<String>)>,
+    /// (shortcut, who else uses it, taken over automatically)
+    conflicts: Vec<(String, String, bool)>,
+    /// Waiting for a key combination for (action, slot).
+    capturing: Option<(Action, usize)>,
+    browsing: Option<(Folder, JoinHandle<Option<String>>)>,
+    status: Option<(String, f64, bool)>,
+    reset_armed: Option<f64>,
+}
+
+pub fn run() -> eframe::Result {
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_title("Queijo Settings")
+            .with_app_id("queijo-settings")
+            .with_icon(crate::icon::window_icon())
+            .with_inner_size([860.0, 640.0])
+            .with_min_inner_size([680.0, 480.0]),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "queijo-settings",
+        options,
+        Box::new(|cc| {
+            crate::app::setup_style(&cc.egui_ctx);
+            style(&cc.egui_ctx);
+            let bindings = shortcut::current();
+            let mut app = SettingsApp {
+                logo: crate::icon::texture(&cc.egui_ctx, 96),
+                cfg: Config::load(),
+                saved: Config::load(),
+                section: Section::General,
+                bindings,
+                conflicts: Vec::new(),
+                capturing: None,
+                browsing: None,
+                status: None,
+                reset_armed: None,
+            };
+            app.refresh_conflicts();
+            Ok(Box::new(app))
+        }),
+    )
+}
+
+fn style(ctx: &egui::Context) {
+    let mut v = egui::Visuals::dark();
+    v.panel_fill = BG;
+    v.window_fill = CARD;
+    v.extreme_bg_color = FIELD;
+    v.selection.bg_fill = ACCENT.gamma_multiply(0.45);
+    v.selection.stroke = Stroke::new(1.0, ACCENT);
+    v.hyperlink_color = ACCENT;
+    for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
+        w.corner_radius = CornerRadius::same(8);
+    }
+    v.widgets.inactive.weak_bg_fill = FIELD;
+    v.widgets.inactive.bg_fill = FIELD;
+    v.widgets.hovered.weak_bg_fill = Color32::from_rgb(52, 52, 60);
+    v.widgets.hovered.bg_fill = Color32::from_rgb(52, 52, 60);
+    v.widgets.active.weak_bg_fill = Color32::from_rgb(62, 62, 72);
+    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT);
+    ctx.set_visuals(v);
+    ctx.global_style_mut(|s| {
+        s.spacing.item_spacing = vec2(10.0, 10.0);
+        s.spacing.button_padding = vec2(12.0, 6.0);
+        s.spacing.interact_size.y = 30.0;
+    });
+}
+
+impl eframe::App for SettingsApp {
+    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        let now = ctx.input(|i| i.time);
+        self.capture_keys(&ctx);
+        self.finish_browse();
+
+        egui::Panel::left("nav")
+            .exact_size(200.0)
+            .resizable(false)
+            .frame(egui::Frame::new().fill(Color32::from_rgb(16, 16, 19)).inner_margin(Margin::same(16)))
+            .show(ui, |ui| self.nav(ui));
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(BG).inner_margin(Margin { left: 28, right: 28, top: 22, bottom: 16 }))
+            .show(ui, |ui| {
+                let width = (ui.available_width() - 16.0).min(680.0);
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    ui.set_width(width);
+                    ui.label(RichText::new(self.section.title()).size(22.0).color(TEXT));
+                    ui.add_space(6.0);
+                    match self.section {
+                        Section::General => self.general(ui),
+                        Section::Shortcuts => self.shortcuts(ui, now),
+                        Section::Files => self.files(ui),
+                        Section::Recording => self.recording(ui),
+                        Section::Editor => self.editor(ui, now),
+                    }
+                    ui.add_space(20.0);
+                });
+            });
+
+        // Changes apply as you make them.
+        if self.cfg != self.saved {
+            match self.cfg.save() {
+                Ok(()) => self.status = Some(("Saved".into(), now, true)),
+                Err(e) => self.status = Some((format!("Could not save: {e}"), now, false)),
+            }
+            self.saved = self.cfg.clone();
+        }
+        self.paint_status(&ctx, now);
+    }
+}
+
+impl SettingsApp {
+    fn nav(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            let (r, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
+            ui.painter().image(self.logo.id(), r, egui::Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+            ui.label(RichText::new("Queijo").size(19.0).color(TEXT));
+        });
+        ui.add_space(14.0);
+        for section in Section::ALL {
+            let selected = self.section == section;
+            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::click());
+            let h = ui.ctx().animate_bool_with_time(Id::unique(("nav", section.title())), resp.hovered() || selected, 0.12);
+            if h > 0.0 {
+                let fill = if selected { ACCENT.gamma_multiply(0.16) } else { Color32::from_white_alpha((14.0 * h) as u8) };
+                ui.painter().rect_filled(r, 8, fill);
+            }
+            let color = if selected { ACCENT } else { paint::lerp(TEXT_DIM, TEXT, h) };
+            paint::icon(ui.painter(), section.icon(), pos2(r.left() + 20.0, r.center().y), color);
+            ui.painter().text(
+                pos2(r.left() + 40.0, r.center().y),
+                egui::Align2::LEFT_CENTER,
+                section.title(),
+                FontId::proportional(14.0),
+                color,
+            );
+            if resp.clicked() {
+                self.section = section;
+                self.capturing = None;
+            }
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+        }
+        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+            ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).size(11.0).color(TEXT_DIM));
+        });
+    }
+
+    // ---------------------------------------------------------------------
+
+    fn general(&mut self, ui: &mut Ui) {
+        card(ui, |ui| {
+            row(ui, "Start in", "Which mode the editor opens in.", |ui| {
+                segmented(ui, &mut self.cfg.start_area, &[
+                    (StartArea::Window, "Window"),
+                    (StartArea::Screen, "Screen"),
+                    (StartArea::Selection, "Selection"),
+                ]);
+            });
+            sep(ui);
+            row(ui, "Capture", "What the editor captures when it opens.", |ui| {
+                segmented(ui, &mut self.cfg.start_kind, &[
+                    (StartKind::Gif, "GIF"),
+                    (StartKind::Video, "Video"),
+                    (StartKind::Screenshot, "Screenshot"),
+                ]);
+            });
+            sep(ui);
+            row(ui, "Show the mouse pointer", "Include the pointer in captures by default (P toggles it).", |ui| {
+                toggle(ui, &mut self.cfg.show_pointer);
+            });
+        });
+        card(ui, |ui| {
+            row(ui, "Ctrl+C also saves a file", "Copy to the clipboard and keep a file too.", |ui| {
+                toggle(ui, &mut self.cfg.copy_also_saves);
+            });
+            sep(ui);
+            row(ui, "Ctrl+S also copies", "Save the file and put the image on the clipboard.", |ui| {
+                toggle(ui, &mut self.cfg.save_also_copies);
+            });
+            sep(ui);
+            row(ui, "Notifications", "Tell me where files were saved. Errors are always shown.", |ui| {
+                toggle(ui, &mut self.cfg.notifications);
+            });
+        });
+    }
+
+    fn shortcuts(&mut self, ui: &mut Ui, now: f64) {
+        hint(ui, "These are GNOME keyboard shortcuts, so they work everywhere. Click a slot and press the keys; Backspace clears it.");
+        card(ui, |ui| {
+            for (n, action) in Action::ALL.into_iter().enumerate() {
+                if n > 0 {
+                    sep(ui);
+                }
+                let keys = self.bindings.iter().find(|(a, _)| *a == action).map(|(_, k)| k.clone()).unwrap_or_default();
+                ui.spacing_mut().item_spacing.y = 2.0;
+                ui.label(RichText::new(action.title()).size(14.0).color(TEXT));
+                ui.label(RichText::new(action.description()).size(12.0).color(TEXT_DIM));
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    for slot in 0..2 {
+                        let key = keys.get(slot).cloned();
+                        let capturing = self.capturing == Some((action, slot));
+                        if keycap_slot(ui, key.as_deref(), capturing, now).clicked() {
+                            self.capturing = if capturing { None } else { Some((action, slot)) };
+                        }
+                    }
+                    ui.menu_button(RichText::new("Presets").size(13.0).color(TEXT_DIM), |ui| {
+                        for (label, accel) in [
+                            ("Print Screen", "Print"),
+                            ("Shift+Print Screen", "<Shift>Print"),
+                            ("Ctrl+Print Screen", "<Primary>Print"),
+                            ("Alt+Print Screen", "<Alt>Print"),
+                            ("Super+Shift+S", "<Super><Shift>s"),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.set_binding(action, keys.len().min(1), Some(accel.to_string()), now);
+                                ui.close();
+                            }
+                        }
+                    });
+                });
+                ui.spacing_mut().item_spacing.y = 10.0;
+                ui.add_space(4.0);
+                for key in &keys {
+                    if let Some((_, who, auto)) = self.conflicts.iter().find(|(k, _, _)| k == key) {
+                        let text = if *auto {
+                            format!("{} was used by {who}; Queijo took it over.", shortcut::pretty(key))
+                        } else {
+                            format!("⚠ {} is also used by {who}. Only one of them will work.", shortcut::pretty(key))
+                        };
+                        ui.label(RichText::new(text).size(12.0).color(if *auto { TEXT_DIM } else { ACCENT }));
+                    }
+                }
+            }
+        });
+        ui.add_space(4.0);
+        ui.label(RichText::new("Inside the editor").size(15.0).color(TEXT));
+        card(ui, |ui| {
+            let rows = [
+                ("Copy / Save / Close", "Ctrl+C · Ctrl+S · Esc"),
+                ("Capture the whole screen", "Ctrl+A"),
+                ("Selection · Screen · Window", "S · C · W"),
+                ("Video · GIF · Pointer", "V · G · P"),
+                ("Pen, line, arrow, rect, ellipse, marker, text, pixelate", "P L A R E M T B"),
+                ("Undo · Redo", "Ctrl+Z · Ctrl+Shift+Z"),
+                ("Tool size", "Mouse wheel"),
+                ("Move the selection", "Arrow keys (Shift = 10 px)"),
+            ];
+            for (n, (what, keys)) in rows.into_iter().enumerate() {
+                if n > 0 {
+                    sep(ui);
+                }
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(what).color(TEXT_DIM));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(RichText::new(keys).monospace().color(TEXT));
+                    });
+                });
+            }
+        });
+    }
+
+    fn files(&mut self, ui: &mut Ui) {
+        hint(ui, "Name placeholders: {date} {time} {year} {month} {day} {hour} {minute} {second} {width} {height} {timestamp}");
+        let ext = self.cfg.image_format.extension();
+        for (folder, title, target, ext) in [
+            (Folder::Screenshots, "Screenshots", self.cfg.screenshots.clone(), ext),
+            (Folder::Videos, "Videos", self.cfg.videos.clone(), "webm"),
+            (Folder::Gifs, "GIFs", self.cfg.gifs.clone(), "gif"),
+        ] {
+            let mut target = target;
+            ui.label(RichText::new(title).size(15.0).color(TEXT));
+            card(ui, |ui| {
+                ui.label(RichText::new("Folder").color(TEXT_DIM));
+                ui.horizontal(|ui| {
+                    let w = ui.available_width() - 100.0;
+                    ui.add(egui::TextEdit::singleline(&mut target.folder).desired_width(w).margin(vec2(8.0, 6.0)));
+                    let busy = self.browsing.is_some();
+                    if ui.add_enabled(!busy, egui::Button::new("Browse…")).clicked() {
+                        let start = target.dir();
+                        self.browsing = Some((folder, std::thread::spawn(move || pick_folder(&start))));
+                    }
+                });
+                ui.label(RichText::new("File name").color(TEXT_DIM));
+                ui.add(
+                    egui::TextEdit::singleline(&mut target.name)
+                        .desired_width(ui.available_width())
+                        .margin(vec2(8.0, 6.0)),
+                );
+                let example = format!("{}.{ext}", config::render(&target.name, 1280, 720));
+                let path = Target { folder: target.folder.clone(), name: target.name.clone() }.dir().join(example);
+                ui.label(RichText::new(format!("Saved as: {}", crate::output::tilde(&path))).size(12.0).color(TEXT_DIM));
+                if folder == Folder::Screenshots {
+                    sep(ui);
+                    row(ui, "Format", "PNG is lossless. JPEG is smaller for photos.", |ui| {
+                        segmented(ui, &mut self.cfg.image_format, &[(ImageFormat::Jpeg, "JPEG"), (ImageFormat::Png, "PNG")]);
+                    });
+                    if self.cfg.image_format == ImageFormat::Jpeg {
+                        row(ui, "JPEG quality", "", |ui| {
+                            ui.add(egui::Slider::new(&mut self.cfg.jpeg_quality, 50..=100));
+                        });
+                    }
+                }
+            });
+            match folder {
+                Folder::Screenshots => self.cfg.screenshots = target,
+                Folder::Videos => self.cfg.videos = target,
+                Folder::Gifs => self.cfg.gifs = target,
+            }
+        }
+    }
+
+    fn recording(&mut self, ui: &mut Ui) {
+        card(ui, |ui| {
+            row(ui, "Countdown", "Seconds before recording starts, to get ready.", |ui| {
+                ui.add(egui::Slider::new(&mut self.cfg.countdown, 0..=10).suffix(" s"));
+            });
+            sep(ui);
+            row(ui, "Video frame rate", "Higher is smoother, files get bigger.", |ui| {
+                segmented(ui, &mut self.cfg.video_fps, &[(60, "60"), (30, "30"), (24, "24")]);
+            });
+        });
+        card(ui, |ui| {
+            row(ui, "GIF frame rate", "GIF timing works in 1/100 s, so these are exact.", |ui| {
+                segmented(ui, &mut self.cfg.gif_fps, &[(50, "50"), (25, "25"), (20, "20"), (10, "10")]);
+            });
+            sep(ui);
+            row(ui, "GIF maximum width", "Wider recordings are scaled down; smaller files.", |ui| {
+                segmented(ui, &mut self.cfg.gif_max_width, &[
+                    (640, "640"),
+                    (960, "960"),
+                    (1280, "1280"),
+                    (0, "Original"),
+                ]);
+            });
+        });
+        hint(ui, "Videos are WebM (VP8). GIFs are recorded losslessly first, then optimized with one palette, light dithering and only the changed parts of each frame.");
+    }
+
+    fn editor(&mut self, ui: &mut Ui, now: f64) {
+        card(ui, |ui| {
+            row(ui, "Remember color and sizes", "Keep the last color and tool sizes for next time.", |ui| {
+                toggle(ui, &mut self.cfg.remember_tools);
+            });
+            sep(ui);
+            row(ui, "Color", "Starting annotation color.", |ui| {
+                for c in PALETTE.iter().rev() {
+                    let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+                    let selected = self.cfg.color == [c.r(), c.g(), c.b()];
+                    if selected {
+                        ui.painter().circle_stroke(r.center(), 12.0, Stroke::new(2.0, Color32::WHITE));
+                    }
+                    let grow = if resp.hovered() { 1.5 } else { 0.0 };
+                    ui.painter().circle_filled(r.center(), 8.5 + grow, *c);
+                    ui.painter().circle_stroke(r.center(), 8.5 + grow, Stroke::new(1.0, Color32::from_white_alpha(40)));
+                    if resp.clicked() {
+                        self.cfg.color = [c.r(), c.g(), c.b()];
+                    }
+                }
+            });
+        });
+        card(ui, |ui| {
+            row(ui, "Reset all settings", "Back to defaults. Shortcuts are kept.", |ui| {
+                let armed = self.reset_armed.is_some_and(|t| now - t < 3.0);
+                let label = if armed { "Click again to reset" } else { "Reset" };
+                if ui.button(label).clicked() {
+                    if armed {
+                        self.cfg = Config::default();
+                        self.reset_armed = None;
+                    } else {
+                        self.reset_armed = Some(now);
+                    }
+                }
+            });
+        });
+        ui.label(RichText::new(format!("Settings file: {}", crate::output::tilde(&Config::path()))).size(12.0).color(TEXT_DIM));
+    }
+
+    // ---------------------------------------------------------------------
+
+    fn set_binding(&mut self, action: Action, slot: usize, key: Option<String>, now: f64) {
+        if let Some((_, keys)) = self.bindings.iter_mut().find(|(a, _)| *a == action) {
+            match key {
+                Some(k) if slot < keys.len() => keys[slot] = k,
+                Some(k) => keys.push(k),
+                None if slot < keys.len() => {
+                    keys.remove(slot);
+                }
+                None => {}
+            }
+            keys.dedup();
+        }
+        // A key belongs to one action only.
+        if let Some(k) = self.bindings.iter().find(|(a, _)| *a == action).and_then(|(_, keys)| keys.get(slot).cloned()) {
+            for (a, keys) in &mut self.bindings {
+                if *a != action {
+                    keys.retain(|x| x != &k);
+                }
+            }
+        }
+        self.refresh_conflicts();
+        match shortcut::apply(&self.bindings) {
+            Ok(()) => self.status = Some(("Shortcut saved".into(), now, true)),
+            Err(e) => self.status = Some((format!("Could not change the shortcut: {e}"), now, false)),
+        }
+        self.bindings = shortcut::current();
+    }
+
+    fn refresh_conflicts(&mut self) {
+        self.conflicts = self
+            .bindings
+            .iter()
+            .flat_map(|(_, keys)| keys.iter())
+            .filter_map(|k| shortcut::conflict(k).map(|(who, auto)| (k.clone(), who, auto)))
+            .collect();
+    }
+
+    fn capture_keys(&mut self, ctx: &egui::Context) {
+        let Some((action, slot)) = self.capturing else { return };
+        let now = ctx.input(|i| i.time);
+        let events = ctx.input(|i| i.events.clone());
+        for event in events {
+            let Event::Key { key, pressed: true, modifiers, .. } = event else { continue };
+            match key {
+                Key::Escape => self.capturing = None,
+                Key::Backspace | Key::Delete if !modifiers.any() => {
+                    self.capturing = None;
+                    self.set_binding(action, slot, None, now);
+                }
+                _ => {
+                    let Some(name) = keysym(key) else { continue };
+                    let plain = !(modifiers.ctrl || modifiers.alt || modifiers.command || modifiers.mac_cmd);
+                    // Bare letters would fire while typing anywhere.
+                    if plain && name.chars().count() == 1 {
+                        self.status = Some(("Add Ctrl, Alt or Super to that key".into(), now, false));
+                        continue;
+                    }
+                    let mut accel = String::new();
+                    if modifiers.ctrl || modifiers.command {
+                        accel.push_str("<Primary>");
+                    }
+                    if modifiers.alt {
+                        accel.push_str("<Alt>");
+                    }
+                    if modifiers.shift {
+                        accel.push_str("<Shift>");
+                    }
+                    accel.push_str(&name);
+                    self.capturing = None;
+                    self.set_binding(action, slot, Some(accel), now);
+                }
+            }
+        }
+        ctx.request_repaint();
+    }
+
+    fn finish_browse(&mut self) {
+        if !self.browsing.as_ref().is_some_and(|(_, h)| h.is_finished()) {
+            return;
+        }
+        let (folder, handle) = self.browsing.take().unwrap();
+        if let Ok(Some(path)) = handle.join() {
+            let path = path.replacen(&config::home().to_string_lossy().to_string(), "~", 1);
+            match folder {
+                Folder::Screenshots => self.cfg.screenshots.folder = path,
+                Folder::Videos => self.cfg.videos.folder = path,
+                Folder::Gifs => self.cfg.gifs.folder = path,
+            }
+        }
+    }
+
+    fn paint_status(&mut self, ctx: &egui::Context, now: f64) {
+        let Some((text, since, ok)) = &self.status else { return };
+        let age = (now - since) as f32;
+        let duration = if *ok { 1.6 } else { 4.0 };
+        if age > duration {
+            self.status = None;
+            return;
+        }
+        ctx.request_repaint();
+        let a = paint::ease_out(age / 0.15).min(1.0 - paint::ease_out((age - duration + 0.3) / 0.3));
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, Id::unique("status")));
+        let galley = painter.layout_no_wrap(text.clone(), FontId::proportional(13.0), TEXT.gamma_multiply(a));
+        let screen = ctx.content_rect();
+        let size = galley.size() + vec2(36.0, 16.0);
+        let r = egui::Rect::from_min_size(
+            pos2(screen.right() - size.x - 20.0, screen.bottom() - size.y - 18.0 + (1.0 - a) * 8.0),
+            size,
+        );
+        paint::panel(&painter, r, 10, a);
+        let dot = if *ok { ACCENT } else { Color32::from_rgb(255, 69, 58) };
+        painter.circle_filled(pos2(r.left() + 14.0, r.center().y), 3.5, dot.gamma_multiply(a));
+        painter.galley(pos2(r.left() + 26.0, r.center().y - galley.size().y / 2.0), galley, TEXT);
+    }
+}
+
+// -------------------------------------------------------------------------
+// Widgets
+
+fn card(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
+    egui::Frame::new()
+        .fill(CARD)
+        .corner_radius(12)
+        .inner_margin(Margin::symmetric(18, 14))
+        .show(ui, |ui| {
+            // The frame's margins come on top of whatever width the content takes.
+            ui.set_width(ui.available_width() - 36.0);
+            content(ui);
+        });
+    ui.add_space(6.0);
+}
+
+fn row(ui: &mut Ui, title: &str, description: &str, control: impl FnOnce(&mut Ui)) {
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.label(RichText::new(title).size(14.0).color(TEXT));
+            if !description.is_empty() {
+                ui.label(RichText::new(description).size(12.0).color(TEXT_DIM));
+            }
+        });
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            control(ui);
+        });
+    });
+}
+
+fn sep(ui: &mut Ui) {
+    let r = ui.available_rect_before_wrap();
+    ui.painter().hline(r.x_range(), r.top() + 1.0, Stroke::new(1.0, Color32::from_white_alpha(14)));
+    ui.add_space(4.0);
+}
+
+fn hint(ui: &mut Ui, text: &str) {
+    ui.label(RichText::new(text).size(12.5).color(TEXT_DIM));
+    ui.add_space(2.0);
+}
+
+/// iOS-style switch with a sliding knob.
+fn toggle(ui: &mut Ui, on: &mut bool) -> egui::Response {
+    let (r, mut resp) = ui.allocate_exact_size(vec2(42.0, 24.0), Sense::click());
+    if resp.clicked() {
+        *on = !*on;
+        resp.mark_changed();
+    }
+    let t = ui.ctx().animate_bool_with_time(resp.id, *on, 0.16);
+    let track = paint::lerp(Color32::from_rgb(64, 64, 72), ACCENT, t);
+    ui.painter().rect_filled(r, 12, track);
+    let x = egui::lerp(r.left() + 12.0..=r.right() - 12.0, t);
+    ui.painter().circle_filled(pos2(x, r.center().y + 0.5), 9.5, Color32::from_black_alpha(50));
+    ui.painter().circle_filled(pos2(x, r.center().y), 9.0, Color32::WHITE);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
+}
+
+/// A row of options with a highlight under the chosen one (laid out right to left).
+fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &str)]) {
+    egui::Frame::new().fill(FIELD).corner_radius(9).inner_margin(Margin::same(3)).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        for (option, label) in options {
+            let selected = *value == *option;
+            let text = RichText::new(*label).size(13.0).color(if selected { Color32::from_rgb(25, 25, 28) } else { TEXT });
+            let button = egui::Button::new(text)
+                .fill(if selected { ACCENT } else { Color32::TRANSPARENT })
+                .stroke(Stroke::NONE)
+                .corner_radius(7)
+                .min_size(vec2(0.0, 26.0));
+            if ui.add(button).clicked() {
+                *value = *option;
+            }
+        }
+    });
+}
+
+fn keycap_slot(ui: &mut Ui, key: Option<&str>, capturing: bool, now: f64) -> egui::Response {
+    let text = match (capturing, key) {
+        (true, _) => "Press keys…".to_string(),
+        (false, Some(k)) => shortcut::pretty(k),
+        (false, None) => "Not set".to_string(),
+    };
+    let galley = ui.painter().layout_no_wrap(text, FontId::proportional(13.0), TEXT);
+    let size = vec2((galley.size().x + 24.0).max(96.0), 30.0);
+    let (r, resp) = ui.allocate_exact_size(size, Sense::click());
+    let h = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.1);
+    let fill = paint::lerp(FIELD, Color32::from_rgb(54, 54, 62), h);
+    ui.painter().rect_filled(r, 8, fill);
+    let stroke = if capturing {
+        let pulse = (0.6 + 0.4 * ((now * 4.0).sin() as f32)).clamp(0.2, 1.0);
+        ui.ctx().request_repaint();
+        Stroke::new(1.5, ACCENT.gamma_multiply(pulse))
+    } else {
+        Stroke::new(1.0, Color32::from_white_alpha(18))
+    };
+    ui.painter().rect_stroke(r, 8, stroke, StrokeKind::Inside);
+    let color = if key.is_none() && !capturing { TEXT_DIM } else { TEXT };
+    ui.painter().galley(r.center() - galley.size() / 2.0, galley, color);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
+}
+
+fn pick_folder(start: &std::path::Path) -> Option<String> {
+    let out = std::process::Command::new("zenity")
+        .args(["--file-selection", "--directory", "--title=Choose a folder"])
+        .arg(format!("--filename={}/", start.display()))
+        .output()
+        .ok()?;
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !path.is_empty()).then_some(path)
+}
+
+/// egui key → GNOME keysym name.
+fn keysym(key: Key) -> Option<String> {
+    let name = key.name();
+    Some(match key {
+        Key::Space => "space".into(),
+        Key::Enter => "Return".into(),
+        Key::Tab => "Tab".into(),
+        Key::ArrowLeft => "Left".into(),
+        Key::ArrowRight => "Right".into(),
+        Key::ArrowUp => "Up".into(),
+        Key::ArrowDown => "Down".into(),
+        Key::PageUp => "Page_Up".into(),
+        Key::PageDown => "Page_Down".into(),
+        Key::Home => "Home".into(),
+        Key::End => "End".into(),
+        Key::Insert => "Insert".into(),
+        Key::Delete => "Delete".into(),
+        Key::Backspace => "BackSpace".into(),
+        Key::Minus => "minus".into(),
+        Key::Equals => "equal".into(),
+        Key::Comma => "comma".into(),
+        Key::Period => "period".into(),
+        Key::Slash => "slash".into(),
+        Key::Semicolon => "semicolon".into(),
+        Key::Escape => return None,
+        _ if name.len() == 1 => name.to_lowercase(),
+        _ if name.starts_with('F') && name[1..].parse::<u8>().is_ok() => name.to_string(),
+        _ => return None,
+    })
+}

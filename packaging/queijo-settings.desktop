@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Queijo Settings
+Comment=Shortcuts, folders, file names and recording options for Queijo
+Exec=queijo --settings
+Icon=queijo
+Terminal=false
+Categories=Settings;
+Keywords=screenshot;shortcut;queijo;
+StartupWMClass=queijo-settings
