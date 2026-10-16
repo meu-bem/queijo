@@ -75,9 +75,54 @@ struct Entry {
     binding: String,
 }
 
+/// Where the shortcuts live: GNOME's settings, or a map in tests.
+/// Values are GVariant text, as `gsettings` prints and accepts them.
+pub trait Store {
+    fn get(&self, schema: &str, key: &str) -> Option<String>;
+    fn set(&self, schema: &str, key: &str, value: &str) -> Result<(), String>;
+    fn reset(&self, schema: &str);
+}
+
+/// The real thing: the `gsettings` command, optionally with extra environment
+/// (tests point it at a throwaway keyfile backend instead of the user's GNOME).
+#[derive(Default)]
+struct Gsettings {
+    env: Vec<(String, String)>,
+}
+
+impl Gsettings {
+    fn run(&self, args: &[&str]) -> Result<String, String> {
+        let out =
+            Command::new("gsettings").args(args).envs(self.env.iter().cloned()).output().map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    }
+}
+
+impl Store for Gsettings {
+    fn get(&self, schema: &str, key: &str) -> Option<String> {
+        self.run(&["get", schema, key]).ok()
+    }
+
+    fn set(&self, schema: &str, key: &str, value: &str) -> Result<(), String> {
+        self.run(&["set", schema, key, value]).map(|_| ())
+    }
+
+    fn reset(&self, schema: &str) {
+        let _ = self.run(&["reset-recursively", schema]);
+    }
+}
+
 /// Current bindings (GNOME accelerator strings) per action.
 pub fn current() -> Vec<(Action, Vec<String>)> {
-    let entries = entries();
+    current_in(&Gsettings::default())
+}
+
+fn current_in(store: &dyn Store) -> Vec<(Action, Vec<String>)> {
+    let entries = entries(store);
     Action::ALL
         .into_iter()
         .map(|action| {
@@ -102,33 +147,33 @@ pub fn find() -> Option<String> {
 /// Replaces all of Queijo's GNOME shortcuts with `bindings`. GNOME's own
 /// screenshot shortcuts that use one of the same keys are switched off.
 pub fn apply(bindings: &[(Action, Vec<String>)]) -> Result<(), String> {
-    let paths = list_paths();
-    let entries = entries();
-    let (ours, others): (Vec<&Entry>, Vec<&Entry>) = entries.iter().partition(|e| is_queijo(&e.command));
+    let entries = entries(&Gsettings::default());
     // Keep pointing at the installed binary the existing shortcuts use, so
     // running the settings from a development build doesn't redirect them.
-    let installed = ours
+    let installed = entries
         .iter()
-        .filter_map(|e| e.command.split_whitespace().next())
-        .map(|p| {
-            if p.contains('/') {
-                p.to_string()
-            } else {
-                format!("{}/.local/bin/{p}", crate::config::home().display())
-            }
-        })
+        .filter(|e| is_queijo(&e.command))
+        .filter_map(|e| program(&e.command))
+        .map(|p| if p.contains('/') { p } else { format!("{}/.local/bin/{p}", crate::config::home().display()) })
         .find(|p| std::path::Path::new(p).is_file());
     let exe = match installed {
         Some(p) => p,
         None => std::env::current_exe().map_err(|e| e.to_string())?.to_string_lossy().into_owned(),
     };
+    apply_in(&Gsettings::default(), &exe, bindings)
+}
+
+fn apply_in(store: &dyn Store, exe: &str, bindings: &[(Action, Vec<String>)]) -> Result<(), String> {
+    let paths = list_paths(store);
+    let entries = entries(store);
+    let (ours, others): (Vec<&Entry>, Vec<&Entry>) = entries.iter().partition(|e| is_queijo(&e.command));
 
     let mut free: Vec<String> = ours.iter().map(|e| e.path.clone()).collect();
     let mut next = 0;
     // Everyone else's shortcuts stay exactly as they are.
     let mut new_list: Vec<String> = others.iter().map(|e| e.path.clone()).collect();
     for e in &ours {
-        gsettings_reset(&e.path);
+        store.reset(&format!("{ITEM_SCHEMA}:{}", e.path));
     }
 
     for (action, keys) in bindings {
@@ -141,85 +186,126 @@ pub fn apply(bindings: &[(Action, Vec<String>)]) -> Result<(), String> {
                 }
             });
             let schema = format!("{ITEM_SCHEMA}:{path}");
-            let command = format!("{exe} {}", action.args()).trim().to_string();
-            gsettings(&["set", &schema, "name", &format!("Queijo — {}", action.title())])?;
-            gsettings(&["set", &schema, "command", &command])?;
-            gsettings(&["set", &schema, "binding", key])?;
+            let command = format!("{} {}", shell_quote(exe), action.args()).trim().to_string();
+            store.set(&schema, "name", &quote(&format!("Queijo — {}", action.title())))?;
+            store.set(&schema, "command", &quote(&command))?;
+            store.set(&schema, "binding", &quote(key))?;
             new_list.push(path);
-            free_builtin(key)?;
+            free_builtin(store, key)?;
         }
     }
-    gsettings(&["set", LIST_SCHEMA, LIST_KEY, &gvariant_list(&new_list)])?;
-    Ok(())
+    store.set(LIST_SCHEMA, LIST_KEY, &gvariant_list(&new_list))
 }
 
 /// Who else uses this key: (description, will Queijo take it over automatically).
 pub fn conflict(binding: &str) -> Option<(String, bool)> {
+    conflict_in(&Gsettings::default(), binding)
+}
+
+fn conflict_in(store: &dyn Store, binding: &str) -> Option<(String, bool)> {
     let want = normalize(binding);
     for (schema, key, what) in BUILTINS {
-        if parse_list(&gsettings(&["get", schema, key]).unwrap_or_default()).iter().any(|b| normalize(b) == want) {
+        if parse_list(&store.get(schema, key).unwrap_or_default()).iter().any(|b| normalize(b) == want) {
             return Some((what.to_string(), true));
         }
     }
-    for path in list_paths() {
-        let schema = format!("{ITEM_SCHEMA}:{path}");
-        let command = get(&schema, "command");
-        if is_queijo(&command) {
-            continue;
-        }
-        if normalize(&get(&schema, "binding")) == want {
-            return Some((format!("custom shortcut “{}”", get(&schema, "name")), false));
-        }
-    }
-    None
+    entries(store)
+        .into_iter()
+        .filter(|e| !is_queijo(&e.command))
+        .find(|e| normalize(&e.binding) == want)
+        .map(|e| (format!("custom shortcut “{}”", get(store, &format!("{ITEM_SCHEMA}:{}", e.path), "name")), false))
 }
 
-fn free_builtin(binding: &str) -> Result<(), String> {
+fn free_builtin(store: &dyn Store, binding: &str) -> Result<(), String> {
     let want = normalize(binding);
     for (schema, key, _) in BUILTINS {
-        let list = parse_list(&gsettings(&["get", schema, key]).unwrap_or_default());
+        let list = parse_list(&store.get(schema, key).unwrap_or_default());
         if list.iter().any(|b| normalize(b) == want) {
             let kept: Vec<String> = list.into_iter().filter(|b| normalize(b) != want).collect();
-            gsettings(&["set", schema, key, &gvariant_list(&kept)])?;
+            store.set(schema, key, &gvariant_list(&kept))?;
         }
     }
     Ok(())
 }
 
 fn is_queijo(command: &str) -> bool {
-    command.split_whitespace().next().is_some_and(|program| program.ends_with("queijo"))
+    program(command).is_some_and(|program| program.ends_with("queijo"))
 }
 
-fn entries() -> Vec<Entry> {
-    list_paths()
+/// The program a shortcut's command runs: its first word, shell quoting honoured.
+fn program(command: &str) -> Option<String> {
+    let mut word = String::new();
+    let mut quote = None;
+    let mut chars = command.trim_start().chars();
+    while let Some(c) = chars.next() {
+        match (quote, c) {
+            (None, c) if c.is_whitespace() => break,
+            (None, '\'' | '"') => quote = Some(c),
+            (Some(q), c) if c == q => quote = None,
+            (None | Some('"'), '\\') => word.extend(chars.next()),
+            (_, c) => word.push(c),
+        }
+    }
+    (!word.is_empty()).then_some(word)
+}
+
+/// A path as one shell word, for the command GNOME runs.
+fn shell_quote(path: &str) -> String {
+    let plain = |c: char| c.is_ascii_alphanumeric() || "_-./+@%:=,".contains(c);
+    if !path.is_empty() && path.chars().all(plain) {
+        path.to_string()
+    } else {
+        format!("'{}'", path.replace('\'', "'\\''"))
+    }
+}
+
+fn entries(store: &dyn Store) -> Vec<Entry> {
+    list_paths(store)
         .into_iter()
         .map(|path| {
             let schema = format!("{ITEM_SCHEMA}:{path}");
-            Entry { command: get(&schema, "command"), binding: get(&schema, "binding"), path }
+            Entry { command: get(store, &schema, "command"), binding: get(store, &schema, "binding"), path }
         })
         .collect()
 }
 
-fn list_paths() -> Vec<String> {
-    parse_list(&gsettings(&["get", LIST_SCHEMA, LIST_KEY]).unwrap_or_default())
+fn list_paths(store: &dyn Store) -> Vec<String> {
+    parse_list(&store.get(LIST_SCHEMA, LIST_KEY).unwrap_or_default())
 }
 
-fn get(schema: &str, key: &str) -> String {
-    let raw = gsettings(&["get", schema, key]).unwrap_or_default();
-    raw.trim().trim_matches('\'').to_string()
+fn get(store: &dyn Store, schema: &str, key: &str) -> String {
+    unquote(&store.get(schema, key).unwrap_or_default())
 }
 
-fn gsettings_reset(path: &str) {
-    let _ = Command::new("gsettings").args(["reset-recursively", &format!("{ITEM_SCHEMA}:{path}")]).status();
+/// A GVariant string literal: `it's` → `'it\'s'`.
+fn quote(text: &str) -> String {
+    format!("'{}'", text.replace('\\', "\\\\").replace('\'', "\\'"))
 }
 
-fn gsettings(args: &[&str]) -> Result<String, String> {
-    let out = Command::new("gsettings").args(args).output().map_err(|e| e.to_string())?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+/// The inverse of [`quote`]; also reads the double-quoted form GVariant prints
+/// for strings that contain a single quote.
+fn unquote(raw: &str) -> String {
+    let raw = raw.trim();
+    let inner = match raw.chars().next() {
+        Some(q @ ('\'' | '"')) if raw.len() >= 2 && raw.ends_with(q) => &raw[1..raw.len() - 1],
+        _ => return raw.to_string(),
+    };
+    let mut out = String::new();
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        match (c, chars.clone().next()) {
+            ('\\', Some('n')) => {
+                out.push('\n');
+                chars.next();
+            }
+            ('\\', Some(next @ ('\\' | '\'' | '"'))) => {
+                out.push(next);
+                chars.next();
+            }
+            _ => out.push(c),
+        }
     }
+    out
 }
 
 /// `['a', 'b']` / `@as []` → `["a", "b"]`.
@@ -284,6 +370,183 @@ pub fn pretty(binding: &str) -> String {
         k => k.to_string(),
     });
     parts.join("+")
+}
+
+#[cfg(test)]
+mod store_tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    /// GNOME's settings as a map, with a typical desktop already in it.
+    struct Fake(RefCell<HashMap<(String, String), String>>);
+
+    impl Store for Fake {
+        fn get(&self, schema: &str, key: &str) -> Option<String> {
+            self.0.borrow().get(&(schema.to_string(), key.to_string())).cloned()
+        }
+
+        fn set(&self, schema: &str, key: &str, value: &str) -> Result<(), String> {
+            self.0.borrow_mut().insert((schema.to_string(), key.to_string()), value.to_string());
+            Ok(())
+        }
+
+        fn reset(&self, schema: &str) {
+            self.0.borrow_mut().retain(|(s, _), _| s != schema);
+        }
+    }
+
+    const P0: &str = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/";
+    const P1: &str = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom1/";
+
+    fn item(path: &str) -> String {
+        format!("{ITEM_SCHEMA}:{path}")
+    }
+
+    fn desktop() -> Fake {
+        let fake = Fake(RefCell::new(HashMap::new()));
+        for (path, name, command, binding) in
+            [(P0, "Text editor", "gedit --new-window", "<Shift><Alt>s"), (P1, "Explorer", "nautilus", "<Super>e")]
+        {
+            fake.set(&item(path), "name", &quote(name)).unwrap();
+            fake.set(&item(path), "command", &quote(command)).unwrap();
+            fake.set(&item(path), "binding", &quote(binding)).unwrap();
+        }
+        fake.set(LIST_SCHEMA, LIST_KEY, &gvariant_list(&[P0.into(), P1.into()])).unwrap();
+        fake.set("org.gnome.shell.keybindings", "show-screenshot-ui", "['Print']").unwrap();
+        fake.set("org.gnome.shell.keybindings", "screenshot", "['<Shift>Print']").unwrap();
+        fake
+    }
+
+    fn bindings(open: &[&str], gif: &[&str]) -> Vec<(Action, Vec<String>)> {
+        let own = |keys: &[&str]| keys.iter().map(|k| k.to_string()).collect::<Vec<_>>();
+        vec![(Action::Open, own(open)), (Action::Gif, own(gif)), (Action::Video, vec![]), (Action::FullScreen, vec![])]
+    }
+
+    fn keys_of(current: &[(Action, Vec<String>)], action: Action) -> Vec<String> {
+        current.iter().find(|(a, _)| *a == action).unwrap().1.clone()
+    }
+
+    #[test]
+    fn applying_adds_our_shortcuts_and_frees_gnomes_key() {
+        let store = desktop();
+        apply_in(&store, "/usr/bin/queijo", &bindings(&["Print", "<Primary><Shift>p"], &["<Primary><Alt>g"])).unwrap();
+
+        let current = current_in(&store);
+        assert_eq!(keys_of(&current, Action::Open).len(), 2);
+        assert!(keys_of(&current, Action::Open).contains(&"Print".to_string()));
+        assert_eq!(keys_of(&current, Action::Gif), vec!["<Primary><Alt>g"]);
+        assert!(keys_of(&current, Action::Video).is_empty());
+
+        // Other people's shortcuts are untouched, and GNOME's own Print is switched off.
+        let entries = entries(&store);
+        assert_eq!(entries.len(), 5);
+        assert_eq!(entries[0].command, "gedit --new-window");
+        assert_eq!(entries[1].binding, "<Super>e");
+        assert_eq!(store.get("org.gnome.shell.keybindings", "show-screenshot-ui").unwrap(), "@as []");
+        assert_eq!(store.get("org.gnome.shell.keybindings", "screenshot").unwrap(), "['<Shift>Print']");
+
+        let gif = entries.iter().find(|e| e.command.contains("--kind gif")).unwrap();
+        assert_eq!(gif.command, "/usr/bin/queijo --kind gif");
+        let name = get(&store, &item(&gif.path), "name");
+        assert!(name.starts_with("Queijo — "), "{name}");
+    }
+
+    #[test]
+    fn reapplying_replaces_instead_of_piling_up() {
+        let store = desktop();
+        apply_in(&store, "/usr/bin/queijo", &bindings(&["Print", "<Primary><Shift>p"], &["<Primary><Alt>g"])).unwrap();
+        apply_in(&store, "/usr/bin/queijo", &bindings(&["Print"], &[])).unwrap();
+
+        let current = current_in(&store);
+        assert_eq!(keys_of(&current, Action::Open), vec!["Print"]);
+        assert!(keys_of(&current, Action::Gif).is_empty());
+        assert_eq!(list_paths(&store).len(), 3, "two of theirs and one of ours");
+        // The removed entries leave nothing behind.
+        let leftovers = store.0.borrow().keys().filter(|(s, _)| s.starts_with(ITEM_SCHEMA)).count();
+        assert_eq!(leftovers, 3 * 3, "name, command and binding for each of the 3 entries");
+
+        apply_in(&store, "/usr/bin/queijo", &bindings(&[], &[])).unwrap();
+        assert_eq!(list_paths(&store), vec![P0, P1]);
+    }
+
+    #[test]
+    fn reports_who_else_uses_a_key() {
+        let store = desktop();
+        assert_eq!(conflict_in(&store, "<Shift>Print"), Some(("GNOME “Take a screenshot”".to_string(), true)));
+        assert_eq!(conflict_in(&store, "<Super>e"), Some(("custom shortcut “Explorer”".to_string(), false)));
+        assert_eq!(conflict_in(&store, "<Control><shift>P"), None);
+        // Notation doesn't matter, and our own entries are never a conflict.
+        assert_eq!(conflict_in(&store, "<Alt><Shift>S").map(|c| c.1), Some(false));
+        apply_in(&store, "/usr/bin/queijo", &bindings(&["<Primary><Shift>p"], &[])).unwrap();
+        assert_eq!(conflict_in(&store, "<Primary><Shift>p"), None);
+    }
+
+    #[test]
+    fn commands_survive_paths_with_spaces_and_quotes() {
+        for exe in ["/usr/bin/queijo", "/home/Maria Silva/.local/bin/queijo", "/opt/it's here/queijo", "queijo"] {
+            let command = format!("{} --kind gif", shell_quote(exe));
+            assert_eq!(program(&command).as_deref(), Some(exe), "{command}");
+            assert!(is_queijo(&command), "{command}");
+        }
+        assert_eq!(shell_quote("/usr/bin/queijo"), "/usr/bin/queijo");
+        assert_eq!(shell_quote("/a b/queijo"), "'/a b/queijo'");
+        assert_eq!(program("  gedit --new-window").as_deref(), Some("gedit"));
+        assert_eq!(program("\"/x y/queijo\" --quick").as_deref(), Some("/x y/queijo"));
+        assert_eq!(program(""), None);
+        assert!(!is_queijo("'/home/queijo fan/bin/gedit' --new-window"));
+    }
+
+    #[test]
+    fn strings_survive_quoting() {
+        for text in ["plain", "it's", r"back\slash", "Enregistrer l'écran", "a \"quoted\" word", "two\nlines"] {
+            assert_eq!(unquote(&quote(text)), text);
+        }
+        // GVariant prints strings that contain an apostrophe with double quotes.
+        assert_eq!(unquote("\"it's\""), "it's");
+        assert_eq!(unquote("'x'"), "x");
+        assert_eq!(unquote("  'padded'  "), "padded");
+        assert_eq!(unquote("unquoted"), "unquoted");
+        assert_eq!(unquote(""), "");
+    }
+
+    /// The same flow against the real `gsettings` command, writing to a throwaway
+    /// keyfile instead of the user's settings. Skipped where GNOME's schemas
+    /// aren't installed (set QUEIJO_REQUIRE_GSETTINGS=1 to make that an error).
+    #[test]
+    fn works_with_the_real_gsettings_command() {
+        let dir = std::env::temp_dir().join(format!("queijo-gsettings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Gsettings {
+            env: vec![
+                ("GSETTINGS_BACKEND".into(), "keyfile".into()),
+                ("XDG_CONFIG_HOME".into(), dir.to_string_lossy().into_owned()),
+            ],
+        };
+        let has_schemas = store.run(&["list-keys", LIST_SCHEMA]).is_ok()
+            && store.run(&["list-keys", "org.gnome.shell.keybindings"]).is_ok();
+        if !has_schemas {
+            assert!(std::env::var_os("QUEIJO_REQUIRE_GSETTINGS").is_none(), "GNOME schemas are required here");
+            eprintln!("skipping: gsettings or the GNOME schemas are not available");
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+
+        store.set("org.gnome.shell.keybindings", "show-screenshot-ui", "['Print']").unwrap();
+        apply_in(&store, "/opt/it's here/queijo", &bindings(&["Print"], &["<Primary><Alt>g"])).unwrap();
+
+        let current = current_in(&store);
+        assert_eq!(keys_of(&current, Action::Open), vec!["Print"]);
+        assert_eq!(keys_of(&current, Action::Gif), vec!["<Primary><Alt>g"]);
+        let entries = entries(&store);
+        let gif = entries.iter().find(|e| e.command.ends_with("--kind gif")).expect("the GIF shortcut is ours");
+        assert_eq!(program(&gif.command).as_deref(), Some("/opt/it's here/queijo"));
+        assert_eq!(store.get("org.gnome.shell.keybindings", "show-screenshot-ui").unwrap(), "@as []");
+
+        apply_in(&store, "/opt/it's here/queijo", &bindings(&[], &[])).unwrap();
+        assert!(list_paths(&store).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]

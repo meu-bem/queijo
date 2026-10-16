@@ -2227,6 +2227,7 @@ dependencies = [
  "eframe",
  "image",
  "serde",
+ "tempfile",
  "toml",
  "wayland-client",
  "wayland-protocols",

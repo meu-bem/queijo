@@ -1,5 +1,6 @@
 //! The settings window (`queijo --settings`, or the gear in the editor).
 
+use std::path::Path;
 use std::thread::JoinHandle;
 
 use eframe::egui::{
@@ -581,7 +582,7 @@ impl SettingsApp {
         }
         let (folder, handle) = self.browsing.take().unwrap();
         if let Ok(Some(path)) = handle.join() {
-            let path = path.replacen(&config::home().to_string_lossy().to_string(), "~", 1);
+            let path = crate::output::tilde(Path::new(&path));
             match folder {
                 Folder::Screenshots => self.cfg.screenshots.folder = path,
                 Folder::Videos => self.cfg.videos.folder = path,
@@ -767,4 +768,50 @@ fn keysym(key: Key) -> Option<String> {
         _ if name.starts_with('F') && name[1..].parse::<u8>().is_ok() => name.to_string(),
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keys_become_gnome_names() {
+        let cases = [
+            (Key::A, "a"),
+            (Key::Z, "z"),
+            (Key::Num5, "5"),
+            (Key::F1, "F1"),
+            (Key::F12, "F12"),
+            (Key::Space, "space"),
+            (Key::Enter, "Return"),
+            (Key::Tab, "Tab"),
+            (Key::ArrowLeft, "Left"),
+            (Key::ArrowDown, "Down"),
+            (Key::PageUp, "Page_Up"),
+            (Key::Delete, "Delete"),
+            (Key::Backspace, "BackSpace"),
+            (Key::Minus, "minus"),
+            (Key::Equals, "equal"),
+            (Key::Slash, "slash"),
+        ];
+        for (key, name) in cases {
+            assert_eq!(keysym(key).as_deref(), Some(name), "{key:?}");
+        }
+    }
+
+    #[test]
+    fn unusable_keys_are_refused() {
+        assert_eq!(keysym(Key::Escape), None, "Escape cancels the capture");
+        assert_eq!(keysym(Key::Copy), None);
+    }
+
+    #[test]
+    fn every_section_has_a_title_and_an_icon() {
+        for section in Section::ALL {
+            assert!(!section.title().is_empty());
+            let _ = section.icon();
+        }
+        let titles: std::collections::HashSet<_> = Section::ALL.iter().map(|s| s.title()).collect();
+        assert_eq!(titles.len(), Section::ALL.len());
+    }
 }

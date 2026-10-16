@@ -577,3 +577,319 @@ pub fn lerp(a: Color32, b: Color32, t: f32) -> Color32 {
     let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
     Color32::from_rgba_unmultiplied(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()), l(a.a(), b.a()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RED: Color32 = Color32::RED;
+
+    fn start(tool: Tool, p: Pos2) -> Annotation {
+        Annotation::start(tool, p, RED, 4.0).expect("drawable tool")
+    }
+
+    #[test]
+    fn tool_tables_are_consistent() {
+        for (i, tool) in Tool::ALL.into_iter().enumerate() {
+            assert_eq!(tool.index(), i);
+            let (lo, hi) = tool.size_range();
+            assert!(lo < hi);
+            assert!((lo..=hi).contains(&tool.default_size()), "{tool:?} default size");
+            let presets = tool.presets();
+            assert!(presets.windows(2).all(|w| w[0] < w[1]), "{tool:?} presets grow");
+            assert!(presets.iter().all(|p| (lo..=hi).contains(p)), "{tool:?} presets are within the range");
+            assert!(!tool.name().is_empty());
+        }
+        let keys: std::collections::HashSet<_> = Tool::ALL.iter().map(|t| t.key()).collect();
+        assert_eq!(keys.len(), Tool::ALL.len(), "every tool has its own key");
+    }
+
+    #[test]
+    fn every_tool_but_text_starts_a_drawing() {
+        for tool in Tool::ALL {
+            let drawing = Annotation::start(tool, pos2(5.0, 6.0), RED, 3.0);
+            assert_eq!(drawing.is_some(), tool != Tool::Text, "{tool:?}");
+        }
+    }
+
+    #[test]
+    fn the_pen_skips_points_that_barely_moved() {
+        let mut pen = start(Tool::Pen, pos2(0.0, 0.0));
+        pen.update(pos2(0.5, 0.5), false);
+        pen.update(pos2(10.0, 0.0), false);
+        let Annotation::Pen { points, .. } = &pen else { unreachable!() };
+        assert_eq!(points, &[pos2(0.0, 0.0), pos2(10.0, 0.0)]);
+    }
+
+    #[test]
+    fn the_marker_goes_straight_with_shift() {
+        let mut marker = start(Tool::Marker, pos2(10.0, 20.0));
+        for p in [pos2(30.0, 25.0), pos2(60.0, 33.0)] {
+            marker.update(p, false);
+        }
+        marker.update(pos2(80.0, 90.0), true);
+        let Annotation::Marker { points, straight, .. } = &marker else { unreachable!() };
+        assert!(*straight);
+        assert_eq!(points, &[pos2(10.0, 20.0), pos2(80.0, 20.0)], "horizontal from the start");
+        marker.update(pos2(85.0, 40.0), false);
+        let Annotation::Marker { points, straight, .. } = &marker else { unreachable!() };
+        assert!(!*straight);
+        assert_eq!(
+            points,
+            &[pos2(10.0, 20.0), pos2(80.0, 20.0), pos2(85.0, 40.0)],
+            "freehand again from where the line ended"
+        );
+    }
+
+    #[test]
+    fn lines_snap_to_45_degrees_with_shift() {
+        let mut line = start(Tool::Line, pos2(0.0, 0.0));
+        line.update(pos2(100.0, 12.0), true);
+        let Annotation::Line { to, .. } = &line else { unreachable!() };
+        assert!(to.y.abs() < 0.01 && (to.x - 100.7).abs() < 1.0, "snapped to horizontal: {to:?}");
+        line.update(pos2(100.0, 90.0), true);
+        let Annotation::Line { to, .. } = &line else { unreachable!() };
+        assert!((to.x - to.y).abs() < 0.01, "snapped to the diagonal: {to:?}");
+        line.update(pos2(100.0, 12.0), false);
+        let Annotation::Line { to, .. } = &line else { unreachable!() };
+        assert_eq!(*to, pos2(100.0, 12.0), "free without shift");
+    }
+
+    #[test]
+    fn arrows_are_lines_with_a_head() {
+        let Annotation::Line { arrow, .. } = start(Tool::Arrow, pos2(0.0, 0.0)) else { unreachable!() };
+        let Annotation::Line { arrow: plain, .. } = start(Tool::Line, pos2(0.0, 0.0)) else { unreachable!() };
+        assert!(arrow && !plain);
+    }
+
+    #[test]
+    fn rectangles_and_ellipses_become_square_with_shift() {
+        for tool in [Tool::Rect, Tool::Ellipse] {
+            let mut shape = start(tool, pos2(10.0, 10.0));
+            shape.update(pos2(110.0, 40.0), true);
+            let (Annotation::Rect { to, .. } | Annotation::Ellipse { to, .. }) = &shape else { unreachable!() };
+            assert_eq!(*to, pos2(110.0, 110.0), "{tool:?}: the longer side wins");
+            shape.update(pos2(-50.0, 30.0), true);
+            let (Annotation::Rect { to, .. } | Annotation::Ellipse { to, .. }) = &shape else { unreachable!() };
+            assert_eq!(*to, pos2(-50.0, 70.0), "{tool:?}: each axis follows the direction of the drag");
+        }
+    }
+
+    #[test]
+    fn stray_clicks_leave_nothing_behind() {
+        let text = |s: &str| Annotation::Text { pos: Pos2::ZERO, text: s.into(), color: RED, size: 20.0 };
+        assert!(!text("").is_meaningful());
+        assert!(!text("  \n ").is_meaningful());
+        assert!(text("hi").is_meaningful());
+
+        assert!(!start(Tool::Line, pos2(0.0, 0.0)).is_meaningful(), "a click is not a line");
+        let mut line = start(Tool::Line, pos2(0.0, 0.0));
+        line.update(pos2(20.0, 0.0), false);
+        assert!(line.is_meaningful());
+
+        let mut thin = start(Tool::Rect, pos2(0.0, 0.0));
+        thin.update(pos2(100.0, 1.0), false);
+        assert!(!thin.is_meaningful(), "no height: invisible");
+        let mut rect = start(Tool::Rect, pos2(0.0, 0.0));
+        rect.update(pos2(10.0, 10.0), false);
+        assert!(rect.is_meaningful());
+
+        assert!(start(Tool::Pen, pos2(0.0, 0.0)).is_meaningful(), "a dot is a dot");
+        assert!(!start(Tool::Pixelate, pos2(0.0, 0.0)).is_meaningful());
+    }
+
+    #[test]
+    fn finishing_smooths_freehand_strokes_and_keeps_the_ends() {
+        let mut pen = start(Tool::Pen, pos2(0.0, 0.0));
+        for p in [pos2(10.0, 10.0), pos2(20.0, 0.0), pos2(30.0, 10.0), pos2(40.0, 0.0)] {
+            pen.update(p, false);
+        }
+        pen.finish();
+        let Annotation::Pen { points, .. } = &pen else { unreachable!() };
+        assert_eq!(points.len(), 2 * 4 + 2);
+        assert_eq!((points[0], *points.last().unwrap()), (pos2(0.0, 0.0), pos2(40.0, 0.0)));
+
+        // A ruler-straight marker line must stay exactly straight.
+        let mut marker = start(Tool::Marker, pos2(0.0, 0.0));
+        marker.update(pos2(50.0, 9.0), true);
+        marker.finish();
+        let Annotation::Marker { points, .. } = &marker else { unreachable!() };
+        assert_eq!(points.len(), 2);
+
+        let mut rect = start(Tool::Rect, pos2(0.0, 0.0));
+        rect.update(pos2(9.0, 9.0), false);
+        rect.finish(); // nothing to smooth
+    }
+
+    #[test]
+    fn translating_moves_every_kind_of_drawing() {
+        let d = vec2(5.0, -3.0);
+        let moved = |a: Annotation| a.translated(d);
+
+        let Annotation::Pen { points, .. } = moved(start(Tool::Pen, pos2(1.0, 1.0))) else { unreachable!() };
+        assert_eq!(points, [pos2(6.0, -2.0)]);
+        let Annotation::Marker { points, .. } = moved(start(Tool::Marker, pos2(1.0, 1.0))) else { unreachable!() };
+        assert_eq!(points, [pos2(6.0, -2.0)]);
+        let mut line = start(Tool::Arrow, pos2(1.0, 1.0));
+        line.update(pos2(11.0, 11.0), false);
+        let Annotation::Line { from, to, .. } = moved(line) else { unreachable!() };
+        assert_eq!((from, to), (pos2(6.0, -2.0), pos2(16.0, 8.0)));
+        let mut rect = start(Tool::Rect, pos2(0.0, 0.0));
+        rect.update(pos2(10.0, 10.0), false);
+        let Annotation::Rect { from, to, .. } = moved(rect) else { unreachable!() };
+        assert_eq!((from, to), (pos2(5.0, -3.0), pos2(15.0, 7.0)));
+        let Annotation::Text { pos, .. } =
+            moved(Annotation::Text { pos: pos2(2.0, 2.0), text: "x".into(), color: RED, size: 9.0 })
+        else {
+            unreachable!()
+        };
+        assert_eq!(pos, pos2(7.0, -1.0));
+        let Annotation::Pixelate { rect, .. } = moved(start(Tool::Pixelate, pos2(0.0, 0.0))) else { unreachable!() };
+        assert_eq!(rect.min, pos2(5.0, -3.0));
+        // The original is untouched.
+        let original = start(Tool::Pen, pos2(1.0, 1.0));
+        let _ = original.translated(d);
+        let Annotation::Pen { points, .. } = original else { unreachable!() };
+        assert_eq!(points, [pos2(1.0, 1.0)]);
+    }
+
+    #[test]
+    fn geometry_helpers() {
+        let straight = snap_angle(pos2(0.0, 0.0), pos2(0.0, 50.0));
+        assert!(straight.x.abs() < 1e-3 && (straight.y - 50.0).abs() < 1e-3, "{straight:?}");
+        let diagonal = snap_angle(pos2(10.0, 10.0), pos2(60.0, 55.0));
+        assert!(((diagonal.x - 10.0) - (diagonal.y - 10.0)).abs() < 0.01);
+        assert_eq!(square(pos2(0.0, 0.0), pos2(30.0, -10.0)), pos2(30.0, -30.0));
+
+        assert_eq!(chaikin(&[pos2(0.0, 0.0), pos2(1.0, 1.0)]).len(), 2, "two points can't be smoothed");
+        let smooth = chaikin(&[pos2(0.0, 0.0), pos2(4.0, 0.0), pos2(4.0, 4.0)]);
+        assert_eq!(
+            smooth,
+            [pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(3.0, 0.0), pos2(4.0, 1.0), pos2(4.0, 3.0), pos2(4.0, 4.0)]
+        );
+    }
+
+    #[test]
+    fn easing_curves_start_and_end_where_they_should() {
+        for f in [ease_out, ease_out_back] {
+            assert!(f(0.0).abs() < 1e-6);
+            assert!((f(1.0) - 1.0).abs() < 1e-6);
+            assert!((f(-5.0) - f(0.0)).abs() < 1e-6, "clamped below");
+            assert!((f(5.0) - f(1.0)).abs() < 1e-6, "clamped above");
+        }
+        assert!(ease_out(0.3) > 0.3, "fast at first");
+        assert!((0..100).any(|i| ease_out_back(i as f32 / 100.0) > 1.0), "overshoots before settling");
+        assert_eq!(
+            lerp(Color32::from_rgb(0, 0, 0), Color32::from_rgb(200, 100, 50), 0.5),
+            Color32::from_rgb(100, 50, 25)
+        );
+    }
+
+    /// Runs `f` inside an egui pass, which is what painting needs.
+    fn in_pass<R>(ctx: &egui::Context, f: impl FnOnce(&egui::Context, &Painter) -> R) -> (R, egui::FullOutput) {
+        let mut f = Some(f);
+        let mut result = None;
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let painter = ui.painter().clone();
+            result = Some((f.take().unwrap())(ui.ctx(), &painter));
+        });
+        (result.unwrap(), output)
+    }
+
+    #[test]
+    fn every_icon_and_annotation_paints() {
+        let ctx = egui::Context::default();
+        let (_, output) = in_pass(&ctx, |_, painter| {
+            let icons = [
+                Icon::Pen,
+                Icon::Line,
+                Icon::Arrow,
+                Icon::Rect,
+                Icon::Ellipse,
+                Icon::Marker,
+                Icon::Text,
+                Icon::Pixelate,
+                Icon::Undo,
+                Icon::Redo,
+                Icon::Save,
+                Icon::Copy,
+                Icon::Close,
+                Icon::Selection,
+                Icon::Screen,
+                Icon::Window,
+                Icon::Photo,
+                Icon::Video,
+                Icon::Gif,
+                Icon::Pointer,
+                Icon::Gear,
+                Icon::Keyboard,
+                Icon::Folder,
+            ];
+            for icon_kind in icons {
+                icon(painter, icon_kind, pos2(20.0, 20.0), Color32::WHITE);
+            }
+            for tool in Tool::ALL.into_iter().filter(|t| *t != Tool::Text) {
+                let mut drawing = start(tool, pos2(10.0, 10.0));
+                drawing.update(pos2(80.0, 60.0), false);
+                drawing.update(pos2(90.0, 20.0), false);
+                drawing.paint(painter);
+            }
+            Annotation::Text { pos: pos2(5.0, 5.0), text: "Olá".into(), color: RED, size: 18.0 }.paint(painter);
+            panel(painter, Rect::from_min_size(pos2(0.0, 0.0), vec2(80.0, 40.0)), 10, 1.0);
+            ring(painter, pos2(30.0, 30.0), 12.0, Stroke::new(1.0, Color32::WHITE));
+            dashed_rect(
+                painter,
+                Rect::from_min_size(pos2(0.0, 0.0), vec2(30.0, 30.0)),
+                Stroke::new(1.0, Color32::WHITE),
+            );
+        });
+        assert!(!output.shapes.is_empty());
+    }
+
+    fn uploads(output: &egui::FullOutput) -> Vec<&egui::epaint::ImageDelta> {
+        output.textures_delta.set.values().flat_map(|deltas| deltas.iter()).collect()
+    }
+
+    #[test]
+    fn pixelating_averages_blocks_of_the_screen() {
+        let ctx = egui::Context::default();
+        // Left half red, right half blue; one 8-pixel block covers the whole 8x4 area.
+        let image = image::RgbaImage::from_fn(8, 4, |x, _| {
+            if x < 4 {
+                image::Rgba([200, 0, 0, 255])
+            } else {
+                image::Rgba([0, 0, 200, 255])
+            }
+        });
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(8.0, 4.0));
+        let (texture, output) = in_pass(&ctx, |ctx, _| pixelate(ctx, &image, screen, screen, 1.0, 8.0));
+        assert!(texture.is_some());
+        let uploaded: Vec<_> = uploads(&output).into_iter().filter(|d| d.image.width() == 1).collect();
+        assert_eq!(uploaded.len(), 1, "one block, so a 1x1 texture");
+        let egui::ImageData::Color(pixels) = &uploaded[0].image;
+        assert_eq!(pixels.pixels[0], Color32::from_rgb(100, 0, 100));
+
+        // Smaller blocks keep more detail: 2 columns of 4 pixels each.
+        let (texture, output) = in_pass(&ctx, |ctx, _| pixelate(ctx, &image, screen, screen, 1.0, 4.0));
+        assert!(texture.is_some());
+        let pair: Vec<_> = uploads(&output).into_iter().filter(|d| d.image.width() == 2).collect();
+        let egui::ImageData::Color(pixels) = &pair[0].image;
+        assert_eq!(pixels.pixels[0], Color32::from_rgb(200, 0, 0));
+        assert_eq!(pixels.pixels[1], Color32::from_rgb(0, 0, 200));
+    }
+
+    #[test]
+    fn pixelating_outside_the_screen_gives_nothing() {
+        let ctx = egui::Context::default();
+        let image = image::RgbaImage::new(10, 10);
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(10.0, 10.0));
+        let (outside, _) = in_pass(&ctx, |ctx, _| {
+            pixelate(ctx, &image, Rect::from_min_size(pos2(50.0, 50.0), vec2(5.0, 5.0)), screen, 1.0, 4.0)
+        });
+        assert!(outside.is_none());
+        let (empty, _) = in_pass(&ctx, |ctx, _| {
+            pixelate(ctx, &image, Rect::from_min_size(pos2(2.0, 2.0), Vec2::ZERO), screen, 1.0, 4.0)
+        });
+        assert!(empty.is_none());
+    }
+}

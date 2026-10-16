@@ -2576,3 +2576,221 @@ fn shot_rect(shot: &WindowShot) -> Rect {
     let [x, y, w, h] = shot.frame;
     Rect::from_min_size(pos2(x as f32, y as f32), vec2(w as f32, h as f32))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn screen(width: f32, height: f32) -> Rect {
+        Rect::from_min_size(Pos2::ZERO, vec2(width, height))
+    }
+
+    fn selection(x: f32, y: f32, w: f32, h: f32) -> Rect {
+        Rect::from_min_size(pos2(x, y), vec2(w, h))
+    }
+
+    #[test]
+    fn grabs_the_handles_at_corners_and_edges() {
+        let r = selection(100.0, 100.0, 200.0, 100.0);
+        let cases = [
+            (pos2(100.0, 100.0), Some(Handle::NW)),
+            (pos2(300.0, 100.0), Some(Handle::NE)),
+            (pos2(100.0, 200.0), Some(Handle::SW)),
+            (pos2(300.0, 200.0), Some(Handle::SE)),
+            (pos2(200.0, 100.0), Some(Handle::N)),
+            (pos2(200.0, 200.0), Some(Handle::S)),
+            (pos2(100.0, 150.0), Some(Handle::W)),
+            (pos2(300.0, 150.0), Some(Handle::E)),
+            (pos2(130.0, 103.0), Some(Handle::N)), // anywhere along an edge
+            (pos2(297.0, 170.0), Some(Handle::E)),
+            (pos2(105.0, 105.0), Some(Handle::NW)), // a corner wins over the edges next to it
+            (pos2(200.0, 150.0), None),             // the middle moves the selection instead
+            (pos2(50.0, 50.0), None),
+            (pos2(320.0, 150.0), None),
+        ];
+        for (point, expected) in cases {
+            assert_eq!(hit_handle(r, point), expected, "{point:?}");
+        }
+    }
+
+    #[test]
+    fn the_eight_handles_sit_on_the_selection() {
+        let r = selection(10.0, 20.0, 100.0, 60.0);
+        let points = handle_points(r);
+        assert_eq!(points.len(), 8);
+        assert!(points.iter().all(|p| (r.left()..=r.right()).contains(&p.x) && (r.top()..=r.bottom()).contains(&p.y)));
+        for p in points {
+            assert!(hit_handle(r, p).is_some(), "{p:?} can be grabbed");
+        }
+    }
+
+    #[test]
+    fn moving_keeps_the_size_and_stays_inside() {
+        let bounds = screen(1000.0, 500.0);
+        let r = selection(0.0, 0.0, 200.0, 100.0);
+        assert_eq!(clamp_into(r.translate(vec2(-50.0, -20.0)), bounds), r);
+        assert_eq!(clamp_into(r.translate(vec2(5000.0, 5000.0)), bounds), selection(800.0, 400.0, 200.0, 100.0));
+        let inside = selection(300.0, 200.0, 50.0, 50.0);
+        assert_eq!(clamp_into(inside, bounds), inside);
+        // Larger than the area: pinned to its corner rather than panicking.
+        assert_eq!(clamp_into(selection(5.0, 5.0, 2000.0, 900.0), bounds).min, bounds.min);
+    }
+
+    #[test]
+    fn cuts_the_selection_out_of_a_rendered_frame() {
+        // A 200x100 frame of a 100x50-point window (twice the pixels).
+        let pixels = (0..200 * 100).map(|i| Color32::from_rgb((i % 200) as u8, (i / 200) as u8, 7)).collect();
+        let frame = egui::ColorImage::new([200, 100], pixels);
+        let cut = crop_frame(&frame, selection(10.0, 5.0, 20.0, 20.0), screen(100.0, 50.0));
+        assert_eq!(cut.dimensions(), (40, 40));
+        assert_eq!(*cut.get_pixel(0, 0), image::Rgba([20, 10, 7, 255]));
+        assert_eq!(*cut.get_pixel(39, 39), image::Rgba([59, 49, 7, 255]));
+
+        // Whatever alpha the readback has, the picture is saved opaque.
+        let see_through = egui::ColorImage::new([2, 2], vec![Color32::from_rgba_premultiplied(5, 6, 7, 128); 4]);
+        let cut = crop_frame(&see_through, screen(2.0, 2.0), screen(2.0, 2.0));
+        assert_eq!(*cut.get_pixel(1, 1), image::Rgba([5, 6, 7, 255]));
+
+        // A window that doesn't start at the origin (the second monitor).
+        let offset = Rect::from_min_size(pos2(1000.0, 0.0), vec2(100.0, 50.0));
+        let cut = crop_frame(&frame, selection(1010.0, 5.0, 20.0, 20.0), offset);
+        assert_eq!(*cut.get_pixel(0, 0), image::Rgba([20, 10, 7, 255]));
+
+        // Sticking out of the window is clipped, never out of range.
+        let cut = crop_frame(&frame, selection(90.0, 40.0, 50.0, 50.0), screen(100.0, 50.0));
+        assert_eq!(cut.dimensions(), (20, 20));
+    }
+
+    #[test]
+    fn bars_stay_on_screen_and_clear_of_each_other() {
+        let display = screen(1920.0, 1080.0);
+        for video in [false, true] {
+            for (x, y, w, h) in [
+                (600.0, 300.0, 400.0, 300.0),  // middle
+                (0.0, 0.0, 300.0, 200.0),      // top-left corner
+                (1620.0, 880.0, 300.0, 200.0), // bottom-right corner
+                (0.0, 0.0, 1920.0, 1080.0),    // the whole screen
+                (100.0, 900.0, 800.0, 180.0),  // along the bottom
+                (1700.0, 100.0, 220.0, 700.0), // along the right
+                (10.0, 10.0, 30.0, 20.0),      // tiny
+            ] {
+                let sel = selection(x, y, w, h);
+                let chrome = Chrome::new(sel, display, video);
+                let ok = display.expand(0.5);
+                assert!(ok.contains_rect(chrome.hbar), "hbar {:?} for {sel:?}", chrome.hbar);
+                if !video {
+                    assert!(ok.contains_rect(chrome.vbar), "vbar {:?} for {sel:?}", chrome.vbar);
+                    assert!(!chrome.vbar.intersects(chrome.hbar), "bars overlap for {sel:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn bars_go_beside_a_selection_when_there_is_room() {
+        let display = screen(1920.0, 1080.0);
+        let sel = selection(600.0, 300.0, 400.0, 300.0);
+        let chrome = Chrome::new(sel, display, false);
+        assert!(chrome.vbar.left() > sel.right(), "tools to the right");
+        assert!(chrome.hbar.top() > sel.bottom(), "actions below");
+        assert!(chrome.opens_right && chrome.hbar_below);
+
+        // Against the right edge the tools flip to the left; at the bottom the actions flip up.
+        let corner = Chrome::new(selection(1500.0, 800.0, 420.0, 280.0), display, false);
+        assert!(corner.vbar.right() < 1500.0 + 420.0 && !corner.opens_right);
+        assert!(corner.hbar.bottom() < 800.0 && !corner.hbar_below);
+    }
+
+    #[test]
+    fn the_palette_opens_beside_the_tool_bar_on_screen() {
+        let display = screen(1920.0, 1080.0);
+        let chrome = Chrome::new(selection(600.0, 300.0, 400.0, 300.0), display, false);
+        assert!(display.contains_rect(chrome.palette));
+        assert!(!chrome.palette.intersects(chrome.vbar));
+        assert!(chrome.hit(chrome.vbar.center(), false) && chrome.hit(chrome.hbar.center(), false));
+        assert!(!chrome.hit(chrome.palette.center(), false), "a closed palette isn't clickable");
+        assert!(chrome.hit(chrome.palette.center(), true));
+        let video = Chrome::new(selection(600.0, 300.0, 400.0, 300.0), display, true);
+        assert!(!video.hit(video.vbar.center(), false), "no tool bar while recording");
+    }
+
+    #[test]
+    fn bar_items_are_laid_out_in_order_without_gaps() {
+        for (list, vertical) in [(&VBAR[..], true), (&HBAR[..], false), (&HBAR_VIDEO[..], false), (&MODEBAR[..], false)]
+        {
+            let bar = Rect::from_min_size(
+                pos2(100.0, 100.0),
+                if vertical { vec2(46.0, bar_len(list)) } else { vec2(bar_len(list), 46.0) },
+            );
+            let laid: Vec<_> = items(bar, list, vertical).collect();
+            assert_eq!(laid.len(), list.len());
+            let mut cursor = PAD;
+            for (item, r) in laid {
+                let (start, len) =
+                    if vertical { (r.top() - bar.top(), r.height()) } else { (r.left() - bar.left(), r.width()) };
+                assert!((start - cursor).abs() < 1e-3 && (len - item.len()).abs() < 1e-3);
+                assert!(bar.expand(0.1).contains_rect(r));
+                cursor += len;
+            }
+            assert!((cursor + PAD - bar_len(list)).abs() < 1e-3);
+        }
+    }
+
+    #[test]
+    fn the_mode_bar_is_centered_at_the_top() {
+        let bar = modebar_rect(screen(1920.0, 1080.0));
+        assert!((bar.center().x - 960.0).abs() < 0.5);
+        assert!(bar.top() > 0.0 && bar.bottom() < 100.0);
+        let second = modebar_rect(Rect::from_min_size(pos2(1920.0, 0.0), vec2(1000.0, 800.0)));
+        assert!((second.center().x - 2420.0).abs() < 0.5, "centered on its own screen");
+    }
+
+    #[test]
+    fn every_tool_and_mode_has_a_button() {
+        for tool in Tool::ALL {
+            assert_eq!(VBAR.iter().filter(|i| **i == Item::Tool(tool)).count(), 1, "{tool:?}");
+        }
+        for area in [Area::Selection, Area::Screen, Area::Window] {
+            assert!(MODEBAR.contains(&Item::Mode(area)), "{area:?}");
+        }
+        for kind in [Kind::Photo, Kind::Video, Kind::Gif] {
+            assert!(MODEBAR.contains(&Item::Kind(kind)), "{kind:?}");
+        }
+        assert!(MODEBAR.contains(&Item::Settings) && MODEBAR.contains(&Item::Pointer));
+        assert!(HBAR.contains(&Item::Save) && HBAR.contains(&Item::Copy) && HBAR.contains(&Item::Close));
+        assert!(HBAR_VIDEO.contains(&Item::Record) && !HBAR_VIDEO.contains(&Item::Save));
+    }
+
+    #[test]
+    fn every_button_has_a_tooltip() {
+        let all = VBAR.iter().chain(&HBAR).chain(&HBAR_VIDEO).chain(&MODEBAR);
+        for item in all.filter(|i| **i != Item::Sep) {
+            assert!(!item.tooltip().0.is_empty(), "{item:?}");
+        }
+    }
+
+    #[test]
+    fn a_screen_maps_between_desktop_and_window_coordinates() {
+        let monitor = Monitor { x: 2560, y: 0, width: 1920, height: 1080, ..Default::default() };
+        let mut s = Screen::new(egui::ViewportBuilder::default(), monitor, RgbaImage::new(3840, 2160));
+        assert_eq!(s.global(), selection(2560.0, 0.0, 1920.0, 1080.0));
+        assert_eq!(s.px_scale(), 2.0, "twice the pixels per logical pixel");
+        // The window is drawn at (0, 0) of its own surface.
+        s.rect = screen(1920.0, 1080.0);
+        assert_eq!(s.offset(), vec2(-2560.0, 0.0));
+        let on_desktop = pos2(2600.0, 40.0);
+        assert_eq!(on_desktop + s.offset(), pos2(40.0, 40.0));
+    }
+
+    #[test]
+    fn viewports_have_stable_distinct_ids() {
+        assert_eq!(viewport_id(0), ViewportId::ROOT);
+        assert_ne!(viewport_id(1), ViewportId::ROOT);
+        assert_ne!(viewport_id(1), viewport_id(2));
+        assert_eq!(viewport_id(1), viewport_id(1));
+    }
+
+    // Checked when compiling: closing has to feel instant, and the picker dims more than the editor.
+    const _: () = assert!(COUNTDOWN_STEP > 0.0 && FADE_OUT > 0.0 && FADE_OUT < 1.0);
+    const _: () = assert!(DIM < PICKER_DIM && PICKER_DIM < 1.0);
+}

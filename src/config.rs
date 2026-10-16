@@ -3,7 +3,7 @@
 //! Global shortcuts are not stored here: they are GNOME keyboard shortcuts and
 //! GNOME's settings are the source of truth (see `shortcut.rs`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::Local;
 use serde::{Deserialize, Serialize};
@@ -120,9 +120,13 @@ impl Config {
 
     /// Missing file → defaults. A broken file is reported and ignored rather than fatal.
     pub fn load() -> Self {
-        match std::fs::read_to_string(Self::path()) {
+        Self::load_from(&Self::path())
+    }
+
+    pub fn load_from(path: &Path) -> Self {
+        match std::fs::read_to_string(path) {
             Ok(text) => toml::from_str(&text).unwrap_or_else(|e| {
-                eprintln!("queijo: ignoring {}: {e}", Self::path().display());
+                eprintln!("queijo: ignoring {}: {e}", path.display());
                 Self::default()
             }),
             Err(_) => Self::default(),
@@ -130,13 +134,16 @@ impl Config {
     }
 
     pub fn save(&self) -> Result<(), String> {
-        let path = Self::path();
-        std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+        self.save_to(&Self::path())
+    }
+
+    pub fn save_to(&self, path: &Path) -> Result<(), String> {
+        std::fs::create_dir_all(path.parent().unwrap_or(Path::new("."))).map_err(|e| e.to_string())?;
         let text = toml::to_string_pretty(self).map_err(|e| e.to_string())?;
         // Write-then-rename so a crash never leaves half a file.
         let tmp = path.with_extension("toml.tmp");
         std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+        std::fs::rename(&tmp, path).map_err(|e| e.to_string())
     }
 }
 
@@ -229,5 +236,118 @@ mod tests {
         assert_eq!(cfg.countdown, 5);
         assert_eq!(cfg.gifs.folder, "/tmp");
         assert_eq!(cfg.video_fps, 30);
+    }
+}
+
+#[cfg(test)]
+mod file_tests {
+    use super::*;
+
+    #[test]
+    fn every_placeholder_is_filled() {
+        let name = render("{year}-{month}-{day} {hour}:{minute}:{second} {width}x{height} #{timestamp}", 1920, 1080);
+        assert!(!name.contains('{'), "{name}");
+        assert!(name.contains("1920x1080"));
+        let parts: Vec<&str> = name.split([' ', '-', ':']).collect();
+        assert_eq!(parts[0].len(), 4, "year");
+        assert!(parts[1..6].iter().all(|p| p.len() == 2), "month, day, hour, minute, second: {name}");
+    }
+
+    #[test]
+    fn unique_paths_count_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = Target { folder: dir.path().to_string_lossy().into_owned(), name: "shot".into() };
+        let first = target.unique_path("png", 1, 1);
+        assert_eq!(first.file_name().unwrap(), "shot.png");
+        std::fs::write(&first, b"x").unwrap();
+        let second = target.unique_path("png", 1, 1);
+        assert_eq!(second.file_name().unwrap(), "shot_2.png");
+        std::fs::write(&second, b"x").unwrap();
+        assert_eq!(target.unique_path("png", 1, 1).file_name().unwrap(), "shot_3.png");
+        assert_eq!(target.unique_path("gif", 1, 1).file_name().unwrap(), "shot.gif", "other extensions are separate");
+    }
+
+    #[test]
+    fn expands_the_home_folder() {
+        assert_eq!(expand("~"), home());
+        assert_eq!(expand("~/Pictures"), home().join("Pictures"));
+        assert_eq!(expand("  ~/x  "), home().join("x"));
+        assert_eq!(expand(""), home());
+        assert_eq!(expand("/var/tmp"), PathBuf::from("/var/tmp"));
+        assert_eq!(expand("~other/x"), PathBuf::from("~other/x"), "only the current user's home");
+    }
+
+    #[test]
+    fn saves_and_loads_every_setting() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("config.toml");
+        let cfg = Config {
+            language: "pt-BR".into(),
+            start_area: StartArea::Window,
+            start_kind: StartKind::Gif,
+            show_pointer: true,
+            notifications: false,
+            copy_also_saves: true,
+            save_also_copies: true,
+            image_format: ImageFormat::Jpeg,
+            jpeg_quality: 70,
+            countdown: 0,
+            video_fps: 60,
+            gif_fps: 10,
+            gif_max_width: 960,
+            color: [1, 2, 3],
+            sizes: vec![1.0, 2.5, 30.0],
+            gifs: Target { folder: "/tmp/g".into(), name: "g_{time}".into() },
+            ..Config::default()
+        };
+        cfg.save_to(&path).unwrap();
+        assert_eq!(Config::load_from(&path), cfg);
+        let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap()).unwrap().collect();
+        assert_eq!(leftovers.len(), 1, "no temporary file is left next to the config");
+    }
+
+    #[test]
+    fn a_missing_or_broken_file_means_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(Config::load_from(&dir.path().join("nope.toml")), Config::default());
+        let broken = dir.path().join("broken.toml");
+        std::fs::write(&broken, "countdown = [oops").unwrap();
+        assert_eq!(Config::load_from(&broken), Config::default());
+        let wrong_type = dir.path().join("wrong.toml");
+        std::fs::write(&wrong_type, "countdown = \"three\"").unwrap();
+        assert_eq!(Config::load_from(&wrong_type), Config::default());
+    }
+
+    #[test]
+    fn older_and_newer_files_still_load() {
+        // A file from before `language` existed, with a key a later version might add.
+        let cfg: Config = toml::from_str("countdown = 5\nsome_future_option = true\n").unwrap();
+        assert_eq!(cfg.countdown, 5);
+        assert_eq!(cfg.language, crate::i18n::AUTO);
+    }
+
+    #[test]
+    fn defaults_are_valid() {
+        let cfg = Config::default();
+        assert_eq!(cfg.language, crate::i18n::AUTO);
+        assert!(cfg.countdown <= 10);
+        assert!([24, 30, 60].contains(&cfg.video_fps));
+        assert!([10, 20, 25, 50].contains(&cfg.gif_fps));
+        assert!((50..=100).contains(&cfg.jpeg_quality));
+        for target in [&cfg.screenshots, &cfg.videos, &cfg.gifs] {
+            assert!(!target.folder.is_empty());
+            assert!(target.name.contains("{date}") && target.name.contains("{time}"), "names are unique by default");
+        }
+        assert_ne!(cfg.videos.name, cfg.gifs.name);
+        assert_eq!(ImageFormat::Png.extension(), "png");
+        assert_eq!(ImageFormat::Jpeg.extension(), "jpg");
+    }
+
+    #[test]
+    fn the_file_uses_readable_names() {
+        let text = toml::to_string_pretty(&Config::default()).unwrap();
+        assert!(text.contains("start_area = \"selection\""), "{text}");
+        assert!(text.contains("image_format = \"png\""), "{text}");
+        assert!(text.contains("[screenshots]"), "{text}");
     }
 }

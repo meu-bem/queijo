@@ -92,3 +92,36 @@ fn crop_to_frame(img: &RgbaImage, [fx, fy, fw, fh]: [i32; 4], [bx, by, bw, _]: [
     let (w, h) = (px(fw).min(img.width() - x), px(fh).min(img.height() - y));
     (w > 0 && h > 0).then(|| image::imageops::crop_imm(img, x, y, w, h).to_image())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::Rgba;
+
+    fn numbered(width: u32, height: u32) -> RgbaImage {
+        RgbaImage::from_fn(width, height, |x, y| Rgba([(x % 256) as u8, (y % 256) as u8, 0, 255]))
+    }
+
+    #[test]
+    fn cuts_the_frame_out_of_the_buffer() {
+        // The buffer starts 10 px up and left of the frame (that is the shadow).
+        let cut = crop_to_frame(&numbered(120, 100), [0, 0, 100, 80], [-10, -10, 120, 100]).unwrap();
+        assert_eq!(cut.dimensions(), (100, 80));
+        assert_eq!(*cut.get_pixel(0, 0), Rgba([10, 10, 0, 255]));
+    }
+
+    #[test]
+    fn scales_with_the_buffer() {
+        let cut = crop_to_frame(&numbered(240, 200), [0, 0, 100, 80], [-10, -10, 120, 100]).unwrap();
+        assert_eq!(cut.dimensions(), (200, 160), "twice the pixels per logical pixel");
+        assert_eq!(*cut.get_pixel(0, 0), Rgba([20, 20, 0, 255]));
+    }
+
+    #[test]
+    fn stays_inside_the_picture() {
+        let cut = crop_to_frame(&numbered(100, 100), [0, 0, 500, 500], [0, 0, 100, 100]).unwrap();
+        assert_eq!(cut.dimensions(), (100, 100));
+        assert!(crop_to_frame(&numbered(100, 100), [500, 0, 50, 50], [0, 0, 100, 100]).is_none());
+        assert!(crop_to_frame(&numbered(100, 100), [10, 10, 0, 50], [0, 0, 100, 100]).is_none(), "empty frame");
+    }
+}

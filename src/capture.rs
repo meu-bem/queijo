@@ -241,3 +241,126 @@ fn locate(hay: &RgbaImage, needle: &RgbaImage) -> Option<(i64, i64)> {
     let needed = if patches.len() >= 2 { 2 } else { 1 };
     votes.into_iter().filter(|(_, v)| *v >= needed).max_by_key(|(_, v)| *v).map(|(k, _)| k)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::Rgba;
+
+    fn monitor(x: i32, y: i32, width: i32, height: i32) -> Monitor {
+        Monitor { x, y, width, height, ..Default::default() }
+    }
+
+    /// Opaque, detailed pixels, the same every run (a flat image can't be located).
+    fn noise(width: u32, height: u32) -> RgbaImage {
+        let mut state = 0x2545_f491_u32;
+        RgbaImage::from_fn(width, height, |_, _| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            Rgba([(state >> 8) as u8, (state >> 16) as u8, (state >> 24) as u8, 255])
+        })
+    }
+
+    fn crop(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> RgbaImage {
+        image::imageops::crop_imm(img, x, y, w, h).to_image()
+    }
+
+    /// A window picture with a see-through margin, like the shadow GNOME includes.
+    fn with_shadow(window: &RgbaImage, margin: u32) -> RgbaImage {
+        let mut out =
+            RgbaImage::from_pixel(window.width() + 2 * margin, window.height() + 2 * margin, Rgba([0, 0, 0, 0]));
+        image::imageops::replace(&mut out, window, margin as i64, margin as i64);
+        out
+    }
+
+    #[test]
+    fn splits_the_desktop_per_monitor() {
+        let mut desktop = RgbaImage::from_pixel(4480, 1080, Rgba([255, 0, 0, 255]));
+        for x in 2560..4480 {
+            for y in 0..1080 {
+                desktop.put_pixel(x, y, Rgba([0, 0, 255, 255]));
+            }
+        }
+        let parts = split(&desktop, &[monitor(0, 0, 2560, 1080), monitor(2560, 0, 1920, 1080)]);
+        assert_eq!((parts[0].dimensions(), parts[1].dimensions()), ((2560, 1080), (1920, 1080)));
+        assert_eq!(*parts[0].get_pixel(0, 0), Rgba([255, 0, 0, 255]));
+        assert_eq!(*parts[0].get_pixel(2559, 1079), Rgba([255, 0, 0, 255]));
+        assert_eq!(*parts[1].get_pixel(0, 0), Rgba([0, 0, 255, 255]));
+    }
+
+    #[test]
+    fn splitting_follows_the_screen_scale() {
+        // Twice the pixels per logical pixel: the crops double, still one per monitor.
+        let desktop = RgbaImage::new(3840 * 2, 1080 * 2);
+        let parts = split(&desktop, &[monitor(0, 0, 1920, 1080), monitor(1920, 0, 1920, 1080)]);
+        assert_eq!((parts[0].dimensions(), parts[1].dimensions()), ((3840, 2160), (3840, 2160)));
+    }
+
+    #[test]
+    fn splitting_handles_negative_and_stacked_layouts() {
+        let desktop = noise(1920 + 1280, 1080);
+        let parts = split(&desktop, &[monitor(0, 0, 1920, 1080), monitor(-1280, 0, 1280, 720)]);
+        assert_eq!(parts[1].dimensions(), (1280, 720));
+        assert_eq!(parts[1].get_pixel(0, 0), desktop.get_pixel(0, 0), "the leftmost monitor starts the picture");
+        assert_eq!(parts[0].get_pixel(0, 0), desktop.get_pixel(1280, 0));
+
+        let stacked = noise(1920, 2160);
+        let parts = split(&stacked, &[monitor(0, 0, 1920, 1080), monitor(0, 1080, 1920, 1080)]);
+        assert_eq!(parts[1].get_pixel(5, 5), stacked.get_pixel(5, 1085));
+    }
+
+    #[test]
+    fn splitting_never_panics_on_odd_input() {
+        assert!(split(&noise(10, 10), &[]).is_empty());
+        let parts = split(&noise(100, 100), &[monitor(0, 0, 5000, 5000)]);
+        assert_eq!(parts[0].dimensions(), (100, 100), "clamped to the picture");
+    }
+
+    #[test]
+    fn finds_a_window_on_the_desktop() {
+        let desktop = noise(1200, 800);
+        let window = crop(&desktop, 300, 200, 400, 300);
+        let screen = [monitor(0, 0, 1200, 800)];
+        assert_eq!(locate_window(&desktop, &window, &screen), Some([300, 200, 400, 300]));
+        assert_eq!(
+            locate_window(&desktop, &with_shadow(&window, 24), &screen),
+            Some([300, 200, 400, 300]),
+            "shadow trimmed"
+        );
+    }
+
+    #[test]
+    fn window_positions_are_in_logical_pixels_of_the_whole_desktop() {
+        let desktop = noise(1200, 800); // 2x the 600x400 logical monitor at (100, 50)
+        let window = crop(&desktop, 300, 200, 400, 300);
+        assert_eq!(locate_window(&desktop, &window, &[monitor(100, 50, 600, 400)]), Some([250, 150, 200, 150]));
+    }
+
+    #[test]
+    fn does_not_invent_a_window() {
+        let desktop = noise(1200, 800);
+        let elsewhere = RgbaImage::from_fn(300, 200, |x, y| Rgba([(x * 3) as u8, (y * 5) as u8, (x ^ y) as u8, 255]));
+        assert_eq!(locate_window(&desktop, &elsewhere, &[monitor(0, 0, 1200, 800)]), None);
+        // Flat windows have nothing to match on; better no answer than a wrong one.
+        let flat = RgbaImage::from_pixel(300, 200, Rgba([30, 30, 30, 255]));
+        assert_eq!(locate_window(&desktop, &flat, &[monitor(0, 0, 1200, 800)]), None);
+        assert_eq!(locate_window(&desktop, &RgbaImage::new(300, 200), &[monitor(0, 0, 1200, 800)]), None, "invisible");
+    }
+
+    #[test]
+    fn trims_shadows_but_not_the_window() {
+        let window = noise(80, 60);
+        let trimmed = trim_transparent(&with_shadow(&window, 10)).unwrap();
+        assert_eq!(trimmed, window);
+        assert_eq!(trim_transparent(&window).unwrap(), window, "nothing to trim");
+        assert!(trim_transparent(&RgbaImage::new(20, 20)).is_none());
+
+        // A soft, semi-transparent shadow edge is trimmed too.
+        let mut soft = with_shadow(&window, 10);
+        for x in 7..10 {
+            for y in 0..soft.height() {
+                soft.put_pixel(x, y, Rgba([0, 0, 0, 90]));
+            }
+        }
+        assert_eq!(trim_transparent(&soft).unwrap(), window);
+    }
+}

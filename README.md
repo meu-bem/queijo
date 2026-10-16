@@ -1,6 +1,6 @@
 # Queijo
 
-<img src="assets/queijo.png" width="96" align="right" alt="Queijo icon">
+<img src="assets/queijo.png" width="96" align="left" alt="Queijo icon">
 
 Screenshot, screencast and GIF tool for Linux (GNOME on Wayland or X11).
 

@@ -44,8 +44,11 @@ fn xrandr() -> Vec<Monitor> {
     let Ok(out) = Command::new("xrandr").arg("--listmonitors").output() else {
         return Vec::new();
     };
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
+    parse_xrandr(&String::from_utf8_lossy(&out.stdout))
+}
+
+fn parse_xrandr(text: &str) -> Vec<Monitor> {
+    text.lines()
         .skip(1)
         .enumerate()
         .filter_map(|(index, line)| {
@@ -198,5 +201,47 @@ mod wayland {
 
         state.outputs.retain(|m| m.width > 0 && m.height > 0);
         Ok(state.outputs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TWO_SCREENS: &str = "Monitors: 2\n \
+        0: +*XWAYLAND1 2560/800x1080/340+0+0  XWAYLAND1\n \
+        1: +XWAYLAND0 1920/310x1080/170+2560+0  XWAYLAND0\n";
+
+    #[test]
+    fn parses_xrandr_monitors() {
+        let monitors = parse_xrandr(TWO_SCREENS);
+        assert_eq!(monitors.len(), 2);
+        let (a, b) = (&monitors[0], &monitors[1]);
+        assert_eq!((a.index, a.name.as_str(), a.x, a.y, a.width, a.height), (0, "XWAYLAND1", 0, 0, 2560, 1080));
+        assert_eq!((b.index, b.name.as_str(), b.x, b.y, b.width, b.height), (1, "XWAYLAND0", 2560, 0, 1920, 1080));
+    }
+
+    #[test]
+    fn parses_monitors_left_of_and_above_the_origin() {
+        let text =
+            "Monitors: 2\n 0: +*DP-1 1920/500x1080/300+0+0  DP-1\n 1: +HDMI-1 1280/400x720/250+-1280+-720  HDMI-1\n";
+        let monitors = parse_xrandr(text);
+        assert_eq!((monitors[1].x, monitors[1].y), (-1280, -720));
+    }
+
+    #[test]
+    fn ignores_what_it_does_not_understand() {
+        assert!(parse_xrandr("").is_empty());
+        assert!(parse_xrandr("Monitors: 0\n").is_empty());
+        assert!(parse_xrandr("Monitors: 1\n this is not a monitor line\n").is_empty());
+        assert!(parse_xrandr("Can't open display\n").is_empty());
+    }
+
+    #[test]
+    fn labels_include_the_description_when_known() {
+        let mut m = Monitor { name: "eDP-1".into(), ..Default::default() };
+        assert_eq!(m.label(), "eDP-1");
+        m.description = "Built-in display".into();
+        assert_eq!(m.label(), "eDP-1 (Built-in display)");
     }
 }

@@ -113,6 +113,10 @@ pub fn notify_error(summary: &str, body: &str) {
 }
 
 fn notify_always(summary: &str, body: &str, icon: Option<&Path>) {
+    // Tests and CI run the real binary; they shouldn't pop up desktop notifications.
+    if std::env::var_os("QUEIJO_NO_NOTIFY").is_some() {
+        return;
+    }
     let mut cmd = Command::new("notify-send");
     cmd.args(["--app-name=Queijo", "--expire-time=4000"]);
     if let Some(icon) = icon {
@@ -123,9 +127,106 @@ fn notify_always(summary: &str, body: &str, icon: Option<&Path>) {
 
 /// `~/Pictures/x.png` instead of `/home/me/Pictures/x.png`, for display.
 pub fn tilde(path: &Path) -> String {
-    let s = path.display().to_string();
-    match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && s.starts_with(&home) => format!("~{}", &s[home.len()..]),
-        _ => s,
+    tilde_in(path, std::env::var_os("HOME").map(PathBuf::from).as_deref())
+}
+
+/// Compares whole path components, so `/home/ann2/x` isn't under `/home/ann`.
+fn tilde_in(path: &Path, home: Option<&Path>) -> String {
+    match home.filter(|h| !h.as_os_str().is_empty()).and_then(|h| path.strip_prefix(h).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{ImageFormat, Target};
+    use image::Rgba;
+
+    fn sample(width: u32, height: u32) -> RgbaImage {
+        RgbaImage::from_fn(width, height, |x, y| {
+            Rgba([(x * 7 % 256) as u8, (y * 5 % 256) as u8, ((x + y) % 256) as u8, 255])
+        })
+    }
+
+    fn target(dir: &Path, name: &str) -> Target {
+        Target { folder: dir.to_string_lossy().into_owned(), name: name.into() }
+    }
+
+    #[test]
+    fn png_round_trips_exactly() {
+        let image = sample(64, 48);
+        let decoded = image::load_from_memory(&encode_png(&image).unwrap()).unwrap().to_rgba8();
+        assert_eq!(decoded, image);
+    }
+
+    #[test]
+    fn fast_png_is_lossless_too() {
+        let image = sample(200, 120);
+        let fast = encode_png_fast(&image).unwrap();
+        assert_eq!(image::load_from_memory(&fast).unwrap().to_rgba8(), image);
+    }
+
+    #[test]
+    fn saves_a_png_named_by_the_template() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = sample(30, 20);
+        let path = save_image(&image, &target(dir.path(), "shot_{width}x{height}"), ImageFormat::Png, 90).unwrap();
+        assert_eq!(path, dir.path().join("shot_30x20.png"));
+        assert_eq!(image::open(&path).unwrap().to_rgba8(), image);
+    }
+
+    #[test]
+    fn saves_a_jpeg_without_transparency() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut image = sample(40, 40);
+        image.put_pixel(0, 0, Rgba([0, 0, 0, 0])); // outside every monitor
+        let path = save_image(&image, &target(dir.path(), "photo"), ImageFormat::Jpeg, 92).unwrap();
+        assert_eq!(path.extension().unwrap(), "jpg");
+        let decoded = image::open(&path).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (40, 40));
+        assert!(!decoded.color().has_alpha());
+    }
+
+    #[test]
+    fn never_overwrites_an_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = sample(8, 8);
+        let t = target(dir.path(), "same");
+        let first = save_image(&image, &t, ImageFormat::Png, 90).unwrap();
+        let second = save_image(&image, &t, ImageFormat::Png, 90).unwrap();
+        let third = save_image(&image, &t, ImageFormat::Png, 90).unwrap();
+        assert_eq!(first.file_name().unwrap(), "same.png");
+        assert_eq!(second.file_name().unwrap(), "same_2.png");
+        assert_eq!(third.file_name().unwrap(), "same_3.png");
+    }
+
+    #[test]
+    fn creates_missing_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("a").join("b");
+        let path = save_image(&sample(4, 4), &target(&nested, "x"), ImageFormat::Png, 90).unwrap();
+        assert!(path.is_file());
+    }
+
+    #[test]
+    fn a_name_cannot_escape_its_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = save_image(&sample(4, 4), &target(dir.path(), "../evil"), ImageFormat::Png, 90).unwrap();
+        assert_eq!(path.parent().unwrap(), dir.path());
+    }
+
+    #[test]
+    fn shortens_the_home_folder() {
+        let home = Path::new("/home/ann");
+        assert_eq!(tilde_in(Path::new("/home/ann/Pictures/a.png"), Some(home)), "~/Pictures/a.png");
+        assert_eq!(tilde_in(Path::new("/home/ann"), Some(home)), "~");
+        // A folder that merely starts with the same letters is not inside it.
+        assert_eq!(tilde_in(Path::new("/home/ann2/x"), Some(home)), "/home/ann2/x");
+        assert_eq!(tilde_in(Path::new("/mnt/home/ann/x"), Some(home)), "/mnt/home/ann/x");
+        assert_eq!(tilde_in(Path::new("/tmp/x"), None), "/tmp/x");
+        assert_eq!(tilde_in(Path::new("/tmp/x"), Some(Path::new(""))), "/tmp/x");
     }
 }
