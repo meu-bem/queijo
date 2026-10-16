@@ -11,6 +11,8 @@ Work on `test`. When it is ready to be released, open a pull request from `test`
 `main`; the checks run on the pull request too. Nothing else should be pushed to
 `main`.
 
+CI can also be started by hand from the Actions tab (pick the branch).
+
 Recommended repository settings (they can't be set from the repository itself):
 protect `main`, require a pull request and the **CI** checks to pass, and don't
 allow direct pushes.

@@ -22,7 +22,7 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
     with:
-      package: false
+      skip_package: true
 
   release:
     name: Publish the release
