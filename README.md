@@ -1,111 +1,177 @@
 # Queijo
 
-<img src="assets/queijo.png" width="96" align="left" alt="Queijo icon">
+<img src="assets/queijo.png" width="110" align="right" alt="Queijo icon">
 
-Screenshot, screencast and GIF tool for Linux (GNOME on Wayland or X11).
+Screenshot, screencast and GIF tool for GNOME on Linux.
 
-Run `queijo` (bind it to a hotkey): the screen freezes on every monitor, you drag
-a region, annotate it, and copy or save. It also does what GNOME's screenshot UI
-does: capture a whole screen or the active window, include the pointer, and
-record screencasts.
+Press a shortcut and the screen freezes on every monitor. Drag over what you want,
+annotate it, then copy or save it. Switch to video or GIF and record the same
+selection instead.
 
-## Modes (bar at the top)
+## Languages
 
-| Key | Mode |
+| Language | |
 | --- | --- |
-| `S` | **Selection**: drag any area (default) |
-| `C` | **Screen**: click a monitor |
-| `W` | **Window**: click the window that was active when Queijo opened |
-| `V` | Switch between **screenshot** and **screencast** (video) |
-| `G` | **Animated GIF** |
-| `P` | Show the mouse pointer in the capture |
+| English | this page |
+| Português (Brasil) | [README.pt-BR.md](README.pt-BR.md) |
 
-These keys work before anything is selected. A selection can span monitors.
+The program itself is available in the same languages and follows your system
+language; you can also pick one in **Settings → General → Language**.
+More languages are planned; the way to add one is described in
+[docs/TRANSLATING.md](docs/TRANSLATING.md).
 
-In screencast mode the toolbar has a **Record** button (or press `Enter`). A
-3-2-1 countdown shows how to stop, then Queijo gets out of the way and records
-in the background into `~/Videos/Screencasts` (WebM). Stop by pressing the
-Queijo shortcut again (or `queijo --stop`); `Esc` during the countdown cancels.
-GNOME shows its orange recording indicator in the top bar meanwhile.
+## Features
 
-**GIF** works the same way. The area is recorded losslessly (FFV1, full RGB, at
-25 fps — exactly GIF's 4/100 s per frame), then turned into a GIF with one
-palette for the whole clip, light ordered dithering (exact UI colours untouched,
-no banding in gradients) and per-frame change rectangles, and finally
-`gifsicle -O3` if installed. The GIF lands next to the screencasts and is also
-copied to the clipboard. Needs `ffmpeg`.
+- **Freeze and select** on all monitors at once. A selection can span monitors.
+- **Three ways to capture**: any area, a whole screen, or a window. With the GNOME
+  Shell extension the window mode lists every window with a live preview.
+- **Annotate**: pen, line, arrow, rectangle, ellipse, marker, text and pixelate,
+  with undo/redo, colours and sizes. `Shift` keeps angles and shapes straight.
+- **Screencast** to WebM and **animated GIF**, with a countdown, an optional mouse
+  pointer and a recording indicator in the top bar. GIFs are recorded losslessly
+  and then optimized (one palette per clip, light dithering, only the changed part
+  of each frame).
+- **Settings window**: global shortcuts, a folder and a file-name template per
+  format, PNG or JPEG, recording options and language.
 
-## GNOME Shell extension (window picker + recording indicator)
+## Compatibility
 
-GNOME doesn't let other apps list windows, so Queijo ships a small Shell
-extension in `gnome-extension/`. With it:
-
-- **Window** mode shows every window on the current workspace as a preview;
-  picking one captures its own pixels even if other windows cover it.
-- While recording, the top bar shows **● 0:12 ■**; click it to stop.
-
-Install it with `gnome-extension/install.sh`, then log out and back in (on
-Wayland the Shell only loads new extensions at login). Without it, Window mode
-falls back to the window that was active when Queijo opened, and recordings are
-stopped with the shortcut only.
-
-## Shortcuts
-
-| Key | Action |
-| --- | --- |
-| Drag | Select a region (drag inside to move it, handles/edges to resize) |
-| `Ctrl+A` | Select the whole monitor |
-| `Ctrl+C` / `Enter` | Copy to clipboard and close (`Enter` starts recording in screencast mode) |
-| `Ctrl+S` | Save (folder and name from the settings, or `-o DIR`) and close |
-| `Esc` | Close |
-| `P` `L` `A` `R` `E` `M` `T` `B` | Pen, line, arrow, rectangle, ellipse, marker, text, pixelate (once something is selected) |
-| Mouse wheel | Change the size of the current tool |
-| `Shift` while drawing | 45° lines, squares and circles |
-| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
-| Arrow keys | Nudge the selection (`Shift` = 10 px) |
-
-## Settings
-
-Click the gear in the editor's top bar, run `queijo --settings`, or open
-**Queijo Settings** from the app grid. Everything applies immediately:
-
-- **General**: starting mode (Selection/Screen/Window) and capture (screenshot,
-  video, GIF), pointer on by default, notifications, "Ctrl+C also saves" and
-  "Ctrl+S also copies".
-- **Shortcuts**: global GNOME shortcuts to open Queijo, open straight in video
-  or GIF mode, or save the whole screen without the editor (up to two each;
-  click a slot and press the keys). GNOME's own screenshot shortcuts on the same
-  key are switched off; clashes with other shortcuts are flagged.
-- **Files**: folder and file-name template per format (`{date}`, `{time}`,
-  `{year}`…`{second}`, `{width}`, `{height}`, `{timestamp}`), PNG or JPEG.
-- **Recording**: countdown, video frame rate, GIF frame rate and maximum width.
-- **Editor**: remember the last color and tool sizes, default color.
-
-Settings live in `~/.config/queijo/config.toml`. Desktop entries are in
-`packaging/` (copy them to `~/.local/share/applications/`), and the icon in
-`assets/queijo.png` (brand yellow `#FFC42E`) goes to
-`~/.local/share/icons/hicolor/<size>x<size>/apps/queijo.png`.
-
-## CLI
-
-```
-queijo                 # interactive overlay
-queijo --quick         # save the whole desktop without the editor
-queijo -m eDP-1        # only use one monitor (see --list-monitors)
-queijo -d 3            # wait 3 seconds first
-queijo --stop          # stop a screencast
-queijo --kind gif      # open in GIF mode (also: photo, video)
-queijo --area window   # open in Window mode (also: selection, screen)
-queijo --settings      # settings window
-```
-
-Needs `wl-clipboard` (Wayland) or `xclip` (X11) for copying. On GNOME the
-capture goes straight through GNOME Shell's D-Bus API (no flash or sound),
-falling back to `gnome-screenshot` and `grim`.
+Queijo is built for **GNOME**. It has only been tested on **Ubuntu 22.04 with
+GNOME 42 on Wayland**, which is the environment the packages target. Other GNOME
+versions, X11 sessions and other desktops are untested. Outside GNOME there is no
+screen recording, and screenshots only work through the fallbacks (`gnome-screenshot`
+or `grim`).
 
 ## Install
 
+Download the files from the **Releases** page.
+
+### Ubuntu 22.04 (`.deb`)
+
+```sh
+sudo apt install ./queijo_<version>-1_amd64.deb
 ```
+
+`apt` also installs what Queijo needs (`ffmpeg`, `wl-clipboard`, `zenity` and a few
+libraries).
+
+### Any other install (`.tar.gz`)
+
+```sh
+tar xzf queijo-<version>-x86_64-linux.tar.gz
+cd queijo-<version>-x86_64-linux
+./install.sh                          # for you only (~/.local)
+sudo PREFIX=/usr/local ./install.sh   # for everyone
+./install.sh --uninstall              # removes it again
+```
+
+You need `ffmpeg`, `wl-clipboard` (Wayland), `libnotify-bin` and `zenity`
+installed yourself. `gifsicle` is optional and makes GIFs a little smaller.
+
+### GNOME Shell extension (optional)
+
+GNOME lets only the Shell see which windows exist, so a small extension provides
+the window picker and the top-bar recording indicator. The `.deb` and the `.tar.gz`
+include it; enable it and log out and back in (on Wayland the Shell only loads new
+extensions at login):
+
+```sh
+gnome-extensions enable queijo@meu-bem.github.io
+```
+
+It is also released on its own as `queijo-gnome-extension-<version>.zip`
+(`gnome-extensions install <file>`). Without it, window mode captures the window
+that was active when Queijo opened, and recordings are stopped with the shortcut.
+
+## Use
+
+Bind `queijo` to a key (for example `Print Screen`) in **Settings → Shortcuts**,
+or in GNOME's own keyboard settings, then press it.
+
+The bar at the top switches what you capture:
+
+| Key | |
+| --- | --- |
+| `S` | **Selection**: drag any area (the default) |
+| `C` | **Screen**: click a monitor |
+| `W` | **Window**: click a window |
+| `V` | **Screenshot** ⇄ **screencast** (video) |
+| `G` | **Animated GIF** |
+| `P` | Show the mouse pointer in the capture |
+
+These keys work before anything is selected.
+
+| Key | Action |
+| --- | --- |
+| Drag | Select an area; drag inside to move it, handles and edges to resize |
+| `Ctrl+A` | Select the whole screen |
+| `Ctrl+C` / `Enter` | Copy and close (`Enter` starts recording in video and GIF mode) |
+| `Ctrl+S` | Save and close |
+| `Esc` | Close |
+| `P` `L` `A` `R` `E` `M` `T` `B` | Pen, line, arrow, rectangle, ellipse, marker, text, pixelate (once an area is selected) |
+| Mouse wheel | Size of the current tool |
+| `Shift` while drawing | 45° lines, squares, circles and straight marker strokes |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
+| Arrow keys | Nudge the selection (`Shift` = 10 px) |
+
+### Recording
+
+In video or GIF mode, pick the area and press **Record** (or `Enter`). A countdown
+shows how to stop, then Queijo gets out of the way and records in the background.
+Stop it by pressing the Queijo shortcut again, by clicking the indicator in the top
+bar (with the extension), or with `queijo --stop`. `Esc` during the countdown
+cancels.
+
+Videos are WebM; GIFs are copied to the clipboard as well as saved. Both go to
+`~/Videos/Screencasts` unless you change it.
+
+### Command line
+
+```sh
+queijo                  # open the editor
+queijo --quick          # save the whole desktop, without the editor
+queijo --kind gif       # open in GIF mode (also: photo, video)
+queijo --area window    # open in window mode (also: selection, screen)
+queijo -m eDP-1         # only use one monitor (see --list-monitors)
+queijo -d 3             # wait 3 seconds first
+queijo -o ~/Shots       # save screenshots there this time
+queijo --stop           # stop a recording
+queijo --settings       # open the settings
+```
+
+## Settings
+
+Open them from the gear in the editor's top bar, with `queijo --settings`, or from
+**Queijo Settings** in the application grid. Changes apply immediately.
+
+- **General**: starting mode and capture, pointer on by default, notifications,
+  "Ctrl+C also saves a file", "Ctrl+S also copies", language.
+- **Shortcuts**: global shortcuts to open Queijo, to open straight in video or GIF
+  mode, and to save the whole screen without the editor. Up to two keys each; click
+  a slot and press the keys. GNOME's own screenshot shortcuts on the same key are
+  switched off, and clashes with your other shortcuts are flagged.
+- **Files**: folder and file-name template for screenshots, videos and GIFs, and
+  PNG or JPEG. Placeholders: `{date}` `{time}` `{year}` `{month}` `{day}` `{hour}`
+  `{minute}` `{second}` `{width}` `{height}` `{timestamp}`. Existing files are never
+  overwritten.
+- **Recording**: countdown, video frame rate, GIF frame rate and maximum width.
+- **Editor**: remember the last colour and tool sizes, starting colour, reset.
+
+They are stored in `~/.config/queijo/config.toml`.
+
+## Build from source
+
+You need a recent stable Rust toolchain.
+
+```sh
 cargo build --release
-install -m755 target/release/queijo ~/.local/bin/
+cargo test
 ```
+
+Installable packages are built with `scripts/build-packages.sh` (it needs
+`cargo-deb` and `zip`). How a release is made is described in
+[docs/RELEASING.md](docs/RELEASING.md).
+
+## License
+
+[MIT](LICENSE)
