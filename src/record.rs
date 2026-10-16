@@ -43,7 +43,6 @@ impl Request {
 const LOSSLESS_PIPELINE: &str = "videoconvert chroma-mode=none dither=none n-threads=%T ! video/x-raw,format=BGRx \
     ! queue ! avenc_ffv1 ! queue ! matroskamux";
 
-
 /// Starts `queijo --record` in the background. Recording in a fresh process
 /// that owns no windows means nothing of the editor can linger on screen (or
 /// in the video), and the editor simply exits.

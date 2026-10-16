@@ -25,7 +25,8 @@ enum Section {
 }
 
 impl Section {
-    const ALL: [Section; 5] = [Section::General, Section::Shortcuts, Section::Files, Section::Recording, Section::Editor];
+    const ALL: [Section; 5] =
+        [Section::General, Section::Shortcuts, Section::Files, Section::Recording, Section::Editor];
 
     fn title(self) -> &'static str {
         match self {
@@ -179,16 +180,23 @@ impl SettingsApp {
     fn nav(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             let (r, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
-            ui.painter().image(self.logo.id(), r, egui::Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+            ui.painter().image(
+                self.logo.id(),
+                r,
+                egui::Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                Color32::WHITE,
+            );
             ui.label(RichText::new("Queijo").size(19.0).color(TEXT));
         });
         ui.add_space(14.0);
         for section in Section::ALL {
             let selected = self.section == section;
             let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::click());
-            let h = ui.ctx().animate_bool_with_time(Id::unique(("nav", section.title())), resp.hovered() || selected, 0.12);
+            let h =
+                ui.ctx().animate_bool_with_time(Id::unique(("nav", section.title())), resp.hovered() || selected, 0.12);
             if h > 0.0 {
-                let fill = if selected { ACCENT.gamma_multiply(0.16) } else { Color32::from_white_alpha((14.0 * h) as u8) };
+                let fill =
+                    if selected { ACCENT.gamma_multiply(0.16) } else { Color32::from_white_alpha((14.0 * h) as u8) };
                 ui.painter().rect_filled(r, 8, fill);
             }
             let color = if selected { ACCENT } else { paint::lerp(TEXT_DIM, TEXT, h) };
@@ -218,19 +226,23 @@ impl SettingsApp {
     fn general(&mut self, ui: &mut Ui) {
         card(ui, |ui| {
             row(ui, "Start in", "Which mode the editor opens in.", |ui| {
-                segmented(ui, &mut self.cfg.start_area, &[
-                    (StartArea::Window, "Window"),
-                    (StartArea::Screen, "Screen"),
-                    (StartArea::Selection, "Selection"),
-                ]);
+                segmented(
+                    ui,
+                    &mut self.cfg.start_area,
+                    &[
+                        (StartArea::Window, "Window"),
+                        (StartArea::Screen, "Screen"),
+                        (StartArea::Selection, "Selection"),
+                    ],
+                );
             });
             sep(ui);
             row(ui, "Capture", "What the editor captures when it opens.", |ui| {
-                segmented(ui, &mut self.cfg.start_kind, &[
-                    (StartKind::Gif, "GIF"),
-                    (StartKind::Video, "Video"),
-                    (StartKind::Screenshot, "Screenshot"),
-                ]);
+                segmented(
+                    ui,
+                    &mut self.cfg.start_kind,
+                    &[(StartKind::Gif, "GIF"), (StartKind::Video, "Video"), (StartKind::Screenshot, "Screenshot")],
+                );
             });
             sep(ui);
             row(ui, "Show the mouse pointer", "Include the pointer in captures by default (P toggles it).", |ui| {
@@ -358,11 +370,17 @@ impl SettingsApp {
                 );
                 let example = format!("{}.{ext}", config::render(&target.name, 1280, 720));
                 let path = Target { folder: target.folder.clone(), name: target.name.clone() }.dir().join(example);
-                ui.label(RichText::new(format!("Saved as: {}", crate::output::tilde(&path))).size(12.0).color(TEXT_DIM));
+                ui.label(
+                    RichText::new(format!("Saved as: {}", crate::output::tilde(&path))).size(12.0).color(TEXT_DIM),
+                );
                 if folder == Folder::Screenshots {
                     sep(ui);
                     row(ui, "Format", "PNG is lossless. JPEG is smaller for photos.", |ui| {
-                        segmented(ui, &mut self.cfg.image_format, &[(ImageFormat::Jpeg, "JPEG"), (ImageFormat::Png, "PNG")]);
+                        segmented(
+                            ui,
+                            &mut self.cfg.image_format,
+                            &[(ImageFormat::Jpeg, "JPEG"), (ImageFormat::Png, "PNG")],
+                        );
                     });
                     if self.cfg.image_format == ImageFormat::Jpeg {
                         row(ui, "JPEG quality", "", |ui| {
@@ -395,12 +413,11 @@ impl SettingsApp {
             });
             sep(ui);
             row(ui, "GIF maximum width", "Wider recordings are scaled down; smaller files.", |ui| {
-                segmented(ui, &mut self.cfg.gif_max_width, &[
-                    (640, "640"),
-                    (960, "960"),
-                    (1280, "1280"),
-                    (0, "Original"),
-                ]);
+                segmented(
+                    ui,
+                    &mut self.cfg.gif_max_width,
+                    &[(640, "640"), (960, "960"), (1280, "1280"), (0, "Original")],
+                );
             });
         });
         hint(ui, "Videos are WebM (VP8). GIFs are recorded losslessly first, then optimized with one palette, light dithering and only the changed parts of each frame.");
@@ -442,7 +459,11 @@ impl SettingsApp {
                 }
             });
         });
-        ui.label(RichText::new(format!("Settings file: {}", crate::output::tilde(&Config::path()))).size(12.0).color(TEXT_DIM));
+        ui.label(
+            RichText::new(format!("Settings file: {}", crate::output::tilde(&Config::path())))
+                .size(12.0)
+                .color(TEXT_DIM),
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -460,7 +481,8 @@ impl SettingsApp {
             keys.dedup();
         }
         // A key belongs to one action only.
-        if let Some(k) = self.bindings.iter().find(|(a, _)| *a == action).and_then(|(_, keys)| keys.get(slot).cloned()) {
+        if let Some(k) = self.bindings.iter().find(|(a, _)| *a == action).and_then(|(_, keys)| keys.get(slot).cloned())
+        {
             for (a, keys) in &mut self.bindings {
                 if *a != action {
                     keys.retain(|x| x != &k);
@@ -567,15 +589,11 @@ impl SettingsApp {
 // Widgets
 
 fn card(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
-    egui::Frame::new()
-        .fill(CARD)
-        .corner_radius(12)
-        .inner_margin(Margin::symmetric(18, 14))
-        .show(ui, |ui| {
-            // The frame's margins come on top of whatever width the content takes.
-            ui.set_width(ui.available_width() - 36.0);
-            content(ui);
-        });
+    egui::Frame::new().fill(CARD).corner_radius(12).inner_margin(Margin::symmetric(18, 14)).show(ui, |ui| {
+        // The frame's margins come on top of whatever width the content takes.
+        ui.set_width(ui.available_width() - 36.0);
+        content(ui);
+    });
     ui.add_space(6.0);
 }
 
@@ -631,7 +649,8 @@ fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &st
         ui.spacing_mut().item_spacing.x = 2.0;
         for (option, label) in options {
             let selected = *value == *option;
-            let text = RichText::new(*label).size(13.0).color(if selected { Color32::from_rgb(25, 25, 28) } else { TEXT });
+            let text =
+                RichText::new(*label).size(13.0).color(if selected { Color32::from_rgb(25, 25, 28) } else { TEXT });
             let button = egui::Button::new(text)
                 .fill(if selected { ACCENT } else { Color32::TRANSPARENT })
                 .stroke(Stroke::NONE)

@@ -9,9 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub fn encode_png(image: &RgbaImage) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
-    image
-        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
-        .map_err(|e| e.to_string())?;
+    image.write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png).map_err(|e| e.to_string())?;
     Ok(bytes)
 }
 
@@ -72,7 +70,12 @@ fn pipe_to(program: &str, args: &[&str], data: &[u8]) -> Result<(), String> {
 }
 
 /// Writes the image where `target` says, named by its template.
-pub fn save_image(image: &RgbaImage, target: &Target, format: ImageFormat, jpeg_quality: u8) -> Result<PathBuf, String> {
+pub fn save_image(
+    image: &RgbaImage,
+    target: &Target,
+    format: ImageFormat,
+    jpeg_quality: u8,
+) -> Result<PathBuf, String> {
     std::fs::create_dir_all(target.dir()).map_err(|e| e.to_string())?;
     let path = target.unique_path(format.extension(), image.width(), image.height());
     let bytes = match format {

@@ -175,7 +175,9 @@ impl Annotation {
             Annotation::Pen { points, .. } | Annotation::Marker { points, .. } => {
                 points.iter_mut().for_each(|p| *p += d);
             }
-            Annotation::Line { from, to, .. } | Annotation::Rect { from, to, .. } | Annotation::Ellipse { from, to, .. } => {
+            Annotation::Line { from, to, .. }
+            | Annotation::Rect { from, to, .. }
+            | Annotation::Ellipse { from, to, .. } => {
                 *from += d;
                 *to += d;
             }
@@ -235,12 +237,7 @@ impl Annotation {
                 }
             }
             Annotation::Rect { from, to, color, width } => {
-                painter.rect_stroke(
-                    Rect::from_two_pos(*from, *to),
-                    2,
-                    Stroke::new(*width, *color),
-                    StrokeKind::Middle,
-                );
+                painter.rect_stroke(Rect::from_two_pos(*from, *to), 2, Stroke::new(*width, *color), StrokeKind::Middle);
             }
             Annotation::Ellipse { from, to, color, width } => {
                 let r = Rect::from_two_pos(*from, *to);
@@ -277,7 +274,14 @@ pub fn text_galley(painter: &Painter, text: &str, color: Color32, size: f32) -> 
 
 /// Builds the blocky texture for a pixelate annotation from the frozen screen.
 /// `scale` converts points to image pixels.
-pub fn pixelate(ctx: &egui::Context, image: &image::RgbaImage, rect: Rect, screen: Rect, scale: f32, block: f32) -> Option<TextureHandle> {
+pub fn pixelate(
+    ctx: &egui::Context,
+    image: &image::RgbaImage,
+    rect: Rect,
+    screen: Rect,
+    scale: f32,
+    block: f32,
+) -> Option<TextureHandle> {
     let x0 = (((rect.min.x - screen.min.x) * scale).floor().max(0.0) as u32).min(image.width());
     let y0 = (((rect.min.y - screen.min.y) * scale).floor().max(0.0) as u32).min(image.height());
     let x1 = (((rect.max.x - screen.min.x) * scale).ceil().max(0.0) as u32).min(image.width());
@@ -306,7 +310,8 @@ pub fn pixelate(ctx: &egui::Context, image: &image::RgbaImage, rect: Rect, scree
             pixels.push(Color32::from_rgb((sum[0] / n) as u8, (sum[1] / n) as u8, (sum[2] / n) as u8));
         }
     }
-    let img = egui::ColorImage { size: [cols as usize, rows as usize], source_size: vec2(cols as f32, rows as f32), pixels };
+    let img =
+        egui::ColorImage { size: [cols as usize, rows as usize], source_size: vec2(cols as f32, rows as f32), pixels };
     Some(ctx.load_texture("pixelate", img, egui::TextureOptions::NEAREST))
 }
 
@@ -526,7 +531,8 @@ pub fn icon(painter: &Painter, icon: Icon, c: Pos2, color: Color32) {
             ));
         }
         Icon::Pointer => {
-            let pts = vec![p(-4.5, -7.5), p(-4.5, 5.0), p(-1.5, 2.0), p(1.0, 7.5), p(3.0, 6.5), p(0.5, 1.0), p(4.5, 1.0)];
+            let pts =
+                vec![p(-4.5, -7.5), p(-4.5, 5.0), p(-1.5, 2.0), p(1.0, 7.5), p(3.0, 6.5), p(0.5, 1.0), p(4.5, 1.0)];
             painter.add(Shape::closed_line(pts, s));
         }
     }

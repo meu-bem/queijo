@@ -4,18 +4,17 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use eframe::egui::{
-    self, emath::easing, pos2, vec2, Color32, CursorIcon, Event, FontId, Id, Key, LayerId, Modifiers, Order,
-    Painter, Pos2, Rect, Stroke, StrokeKind, TextureHandle, TextureOptions, ViewportBuilder, ViewportCommand,
-    ViewportId,
+    self, emath::easing, pos2, vec2, Color32, CursorIcon, Event, FontId, Id, Key, LayerId, Modifiers, Order, Painter,
+    Pos2, Rect, Stroke, StrokeKind, TextureHandle, TextureOptions, ViewportBuilder, ViewportCommand, ViewportId,
 };
 use image::RgbaImage;
 
 use crate::config::{self, Config};
 use crate::monitors::Monitor;
 use crate::output;
+use crate::paint::{self, Annotation, Icon, Tool, ACCENT, PALETTE, TEXT, TEXT_DIM};
 use crate::record;
 use crate::shell_ext::WindowShot;
-use crate::paint::{self, Annotation, Icon, Tool, ACCENT, PALETTE, TEXT, TEXT_DIM};
 
 const BTN: f32 = 36.0;
 const PAD: f32 = 5.0;
@@ -51,7 +50,16 @@ pub struct Screen {
 impl Screen {
     pub fn new(viewport: ViewportBuilder, monitor: Monitor, image: RgbaImage) -> Self {
         let rect = Rect::from_min_size(Pos2::ZERO, vec2(monitor.width as f32, monitor.height as f32));
-        Self { viewport, monitor, image, pointer_image: None, texture: None, pointer_texture: None, opened_at: None, rect }
+        Self {
+            viewport,
+            monitor,
+            image,
+            pointer_image: None,
+            texture: None,
+            pointer_texture: None,
+            opened_at: None,
+            rect,
+        }
     }
 
     /// This monitor in desktop coordinates (logical pixels).
@@ -70,6 +78,10 @@ impl Screen {
         self.image.width() as f32 / self.global().width().max(1.0)
     }
 }
+
+/// The background lookup of the focused window (its rectangle, in desktop coordinates)
+/// and the flag set once the Shell has the window's picture.
+pub type WindowLookup = (Option<JoinHandle<Option<[i32; 4]>>>, Arc<AtomicBool>);
 
 /// Grabs the desktop again with the pointer drawn in, returning it per screen.
 /// It flags the bool once the pixels are taken.
@@ -217,9 +229,17 @@ impl Handle {
 enum Drag {
     None,
     /// `previous` is restored if this turns out to be a click rather than a drag.
-    Selecting { origin: Pos2, previous: Option<Rect> },
-    Moving { grab: egui::Vec2 },
-    Resizing { handle: Handle, start: Rect },
+    Selecting {
+        origin: Pos2,
+        previous: Option<Rect>,
+    },
+    Moving {
+        grab: egui::Vec2,
+    },
+    Resizing {
+        handle: Handle,
+        start: Rect,
+    },
     Drawing,
     /// The press landed on UI chrome (or closed a popover); ignore it until release.
     Swallow,
@@ -467,7 +487,7 @@ impl QueijoApp {
         screens: Vec<Screen>,
         cfg: Config,
         (desktop, desktop_rect): (Arc<RgbaImage>, Rect),
-        (window_job, window_taken): (Option<JoinHandle<Option<[i32; 4]>>>, Arc<AtomicBool>),
+        (window_job, window_taken): WindowLookup,
         shots_job: Option<JoinHandle<Vec<WindowShot>>>,
         pointer_job: Option<PointerJob>,
     ) -> Self {
@@ -598,7 +618,8 @@ impl QueijoApp {
                 (0..self.screens.len()).filter(|i| area(i) > 0.0).max_by(|a, b| area(a).total_cmp(&area(b)))
             })
         };
-        let mine: Vec<usize> = (0..self.shots.len()).filter(|&i| home(shot_rect(&self.shots[i])) == Some(idx)).collect();
+        let mine: Vec<usize> =
+            (0..self.shots.len()).filter(|&i| home(shot_rect(&self.shots[i])) == Some(idx)).collect();
         if mine.is_empty() {
             return Vec::new();
         }
@@ -691,9 +712,11 @@ impl QueijoApp {
     /// Without the Shell extension: waits for the focused-window lookup if it is still running.
     fn finish_window_lookup(&mut self) {
         if let Some(job) = self.window_job.take() {
-            self.window = job.join().ok().flatten().map(|[x, y, w, h]| {
-                Rect::from_min_size(pos2(x as f32, y as f32), vec2(w as f32, h as f32))
-            });
+            self.window = job
+                .join()
+                .ok()
+                .flatten()
+                .map(|[x, y, w, h]| Rect::from_min_size(pos2(x as f32, y as f32), vec2(w as f32, h as f32)));
         }
     }
 
@@ -947,7 +970,8 @@ impl QueijoApp {
             }
             return;
         }
-        let frames: Vec<Option<Arc<egui::ColorImage>>> = export.frames.iter().map(|f| f.lock().unwrap().take()).collect();
+        let frames: Vec<Option<Arc<egui::ColorImage>>> =
+            export.frames.iter().map(|f| f.lock().unwrap().take()).collect();
         let action = export.action;
         self.export = None;
         let image = self.stitch(sel, |screen, inter| {
@@ -1119,7 +1143,8 @@ impl QueijoApp {
         }
 
         // In Screen/Window mode, preview what a click would capture.
-        let idle = matches!(self.drag, Drag::None | Drag::Swallow) && self.closing.is_none() && self.countdown.is_none();
+        let idle =
+            matches!(self.drag, Drag::None | Drag::Swallow) && self.closing.is_none() && self.countdown.is_none();
         let target = match self.area {
             _ if sel.is_some() || !idle => None,
             Area::Screen if input.pos.is_none() => None,
@@ -1129,7 +1154,8 @@ impl QueijoApp {
         // Dim everything outside the selection.
         let dim_alpha = if exporting_close { 0.0 } else { alpha };
         let picker = self.picker_visible();
-        let picker_t = ctx.animate_bool_with_time_and_easing(Id::unique(("picker-dim", idx)), picker, 0.2, easing::cubic_out);
+        let picker_t =
+            ctx.animate_bool_with_time_and_easing(Id::unique(("picker-dim", idx)), picker, 0.2, easing::cubic_out);
         let strength = DIM + (PICKER_DIM - DIM) * picker_t;
         let dim = Color32::from_black_alpha((255.0 * strength * intro * dim_alpha) as u8);
         match sel.or(target).map(|s| s.intersect(rect)).filter(|s| s.is_positive()) {
@@ -1276,7 +1302,14 @@ impl QueijoApp {
         }
     }
 
-    fn handle_pointer(&mut self, ctx: &egui::Context, idx: usize, rect: Rect, now: f64, input: PointerIn) -> CursorIcon {
+    fn handle_pointer(
+        &mut self,
+        ctx: &egui::Context,
+        idx: usize,
+        rect: Rect,
+        now: f64,
+        input: PointerIn,
+    ) -> CursorIcon {
         let chrome = self.chrome_rects(idx, rect);
         let offset = self.screens[idx].offset();
         let desktop = |p: Pos2| p - offset;
@@ -1422,7 +1455,8 @@ impl QueijoApp {
     fn start_text(&mut self, ctx: &egui::Context, p: Pos2, now: f64) {
         let painter = ctx.layer_painter(LayerId::background());
         // Clicking an existing label re-opens it for editing.
-        let hit = self.annotations.iter().rposition(|a| a.text_rect(&painter).is_some_and(|r| r.expand(4.0).contains(p)));
+        let hit =
+            self.annotations.iter().rposition(|a| a.text_rect(&painter).is_some_and(|r| r.expand(4.0).contains(p)));
         if let Some(i) = hit {
             if let Annotation::Text { pos, text, color, size } = self.annotations.remove(i) {
                 self.color = color;
@@ -1512,7 +1546,12 @@ impl QueijoApp {
 
     /// `sel` is in this window's coordinates.
     fn paint_selection(&self, ctx: &egui::Context, painter: &Painter, sel: Rect, rect: Rect, now: f64, alpha: f32) {
-        painter.rect_stroke(sel.expand(1.5), 0, Stroke::new(1.0, Color32::from_black_alpha((70.0 * alpha) as u8)), StrokeKind::Outside);
+        painter.rect_stroke(
+            sel.expand(1.5),
+            0,
+            Stroke::new(1.0, Color32::from_black_alpha((70.0 * alpha) as u8)),
+            StrokeKind::Outside,
+        );
         painter.rect_stroke(sel, 0, Stroke::new(1.5, ACCENT.gamma_multiply(alpha)), StrokeKind::Outside);
 
         let creating = matches!(self.drag, Drag::Selecting { .. });
@@ -1614,17 +1653,34 @@ impl QueijoApp {
 
     /// Window picker: a grid of live previews, like GNOME's window mode.
     #[allow(clippy::too_many_arguments)]
-    fn paint_picker(&mut self, ctx: &egui::Context, fg: &Painter, idx: usize, rect: Rect, now: f64, input: PointerIn, alpha: f32) {
+    fn paint_picker(
+        &mut self,
+        ctx: &egui::Context,
+        fg: &Painter,
+        idx: usize,
+        rect: Rect,
+        now: f64,
+        input: PointerIn,
+        alpha: f32,
+    ) {
         let since = *self.picker_since.get_or_insert(now);
         if self.shots_job.is_some() {
-            let msg = fg.layout_no_wrap("Loading windows…".into(), FontId::proportional(14.0), TEXT_DIM.gamma_multiply(alpha));
+            let msg = fg.layout_no_wrap(
+                "Loading windows…".into(),
+                FontId::proportional(14.0),
+                TEXT_DIM.gamma_multiply(alpha),
+            );
             fg.galley(rect.center() - msg.size() / 2.0, msg, TEXT_DIM);
             return;
         }
         let cards = self.picker_cards(idx, rect);
         if cards.is_empty() {
             if self.shots.is_empty() && idx == 0 {
-                let msg = fg.layout_no_wrap("No windows on this workspace".into(), FontId::proportional(14.0), TEXT_DIM.gamma_multiply(alpha));
+                let msg = fg.layout_no_wrap(
+                    "No windows on this workspace".into(),
+                    FontId::proportional(14.0),
+                    TEXT_DIM.gamma_multiply(alpha),
+                );
                 fg.galley(rect.center() - msg.size() / 2.0, msg, TEXT_DIM);
             }
             return;
@@ -1655,7 +1711,15 @@ impl QueijoApp {
             let frame = shot_rect(&self.shots[i]);
             let s = (area.width() / frame.width()).min(area.height() / frame.height());
             let preview = Rect::from_center_size(area.center(), frame.size() * s * (1.0 + 0.035 * h));
-            fg.add(egui::Shadow { offset: [0, 10], blur: 30, spread: 0, color: Color32::from_black_alpha((120.0 * a) as u8) }.as_shape(preview, 8));
+            fg.add(
+                egui::Shadow {
+                    offset: [0, 10],
+                    blur: 30,
+                    spread: 0,
+                    color: Color32::from_black_alpha((120.0 * a) as u8),
+                }
+                .as_shape(preview, 8),
+            );
             let texture = match (&self.thumbs[i], &self.shots[i].thumb) {
                 (Some(t), _) => Some(t.id()),
                 (None, Some(img)) => {
@@ -1668,7 +1732,12 @@ impl QueijoApp {
             };
             match texture {
                 Some(tex) => {
-                    fg.image(tex, preview, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE.gamma_multiply(a));
+                    fg.image(
+                        tex,
+                        preview,
+                        Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
+                        Color32::WHITE.gamma_multiply(a),
+                    );
                 }
                 None => {
                     fg.rect_filled(preview, 8, Color32::from_white_alpha((24.0 * a) as u8));
@@ -2028,8 +2097,17 @@ impl QueijoApp {
     }
 
     /// Colour swatches and size presets. Returns whether a cell is hovered.
-    fn paint_palette(&mut self, ctx: &egui::Context, fg: &Painter, chrome: &Chrome, alpha: f32, input: PointerIn, clicked: &mut Option<Item>) -> bool {
-        let t = ctx.animate_bool_with_time_and_easing(Id::unique("palette"), self.palette_open, 0.18, easing::cubic_out);
+    fn paint_palette(
+        &mut self,
+        ctx: &egui::Context,
+        fg: &Painter,
+        chrome: &Chrome,
+        alpha: f32,
+        input: PointerIn,
+        clicked: &mut Option<Item>,
+    ) -> bool {
+        let t =
+            ctx.animate_bool_with_time_and_easing(Id::unique("palette"), self.palette_open, 0.18, easing::cubic_out);
         if t <= 0.0 {
             return false;
         }
@@ -2037,7 +2115,9 @@ impl QueijoApp {
         // Grow out of the edge that faces the tool bar.
         let anchor_x = if chrome.opens_right { chrome.palette.left() } else { chrome.palette.right() };
         let s = 0.94 + 0.06 * t;
-        let map = |p: Pos2| pos2(anchor_x + (p.x - anchor_x) * s, chrome.palette.center().y + (p.y - chrome.palette.center().y) * s);
+        let map = |p: Pos2| {
+            pos2(anchor_x + (p.x - anchor_x) * s, chrome.palette.center().y + (p.y - chrome.palette.center().y) * s)
+        };
         let panel = Rect::from_min_max(map(chrome.palette.min), map(chrome.palette.max));
         paint::panel(fg, panel, 14, a);
 
@@ -2096,7 +2176,11 @@ impl QueijoApp {
             let h = ctx.animate_bool_with_time(Id::unique(("size", i)), hover(cell), 0.1);
             let selected = (self.size() - preset).abs() < 0.5;
             if selected || h > 0.0 {
-                let bg = if selected { ACCENT.gamma_multiply(0.22 * a) } else { Color32::from_white_alpha((18.0 * h * a) as u8) };
+                let bg = if selected {
+                    ACCENT.gamma_multiply(0.22 * a)
+                } else {
+                    Color32::from_white_alpha((18.0 * h * a) as u8)
+                };
                 fg.rect_filled(cell.shrink2(vec2(3.0, 0.0)), 7, bg);
             }
             let fill = if selected { ACCENT } else { Color32::from_gray(215) }.gamma_multiply(a);
@@ -2126,7 +2210,17 @@ impl QueijoApp {
     #[allow(clippy::too_many_arguments)]
     /// `prefer` is "to the right" for vertical bars and "below" for horizontal ones.
     #[allow(clippy::too_many_arguments)]
-    fn paint_tooltip(&self, fg: &Painter, item: Item, anchor: Rect, vertical: bool, bar: Rect, prefer: bool, screen: Rect, a: f32) {
+    fn paint_tooltip(
+        &self,
+        fg: &Painter,
+        item: Item,
+        anchor: Rect,
+        vertical: bool,
+        bar: Rect,
+        prefer: bool,
+        screen: Rect,
+        a: f32,
+    ) {
         let (title, shortcut) = item.tooltip();
         let title = fg.layout_no_wrap(title, FontId::proportional(13.0), TEXT.gamma_multiply(a));
         let key = fg.layout_no_wrap(shortcut.into(), FontId::proportional(11.5), TEXT_DIM.gamma_multiply(a));
@@ -2137,11 +2231,19 @@ impl QueijoApp {
             let gap = GAP + PAD;
             let right = pos2(bar.right() + gap, anchor.center().y - size.y / 2.0);
             let left = pos2(bar.left() - gap - size.x, anchor.center().y - size.y / 2.0);
-            if (prefer && right.x + size.x < screen.right()) || left.x < screen.left() { right } else { left }
+            if (prefer && right.x + size.x < screen.right()) || left.x < screen.left() {
+                right
+            } else {
+                left
+            }
         } else {
             let below = pos2(anchor.center().x - size.x / 2.0, bar.bottom() + 8.0);
             let above = pos2(anchor.center().x - size.x / 2.0, bar.top() - 8.0 - size.y);
-            if (prefer && below.y + size.y < screen.bottom()) || above.y < screen.top() { below } else { above }
+            if (prefer && below.y + size.y < screen.bottom()) || above.y < screen.top() {
+                below
+            } else {
+                above
+            }
         };
         let pos = pos2(pos.x.min(screen.right() - size.x - 4.0).max(screen.left() + 4.0), pos.y);
         let r = Rect::from_min_size(pos, size);
@@ -2157,11 +2259,11 @@ impl QueijoApp {
         }
     }
 
-
     /// Screencast mode: says next to the Record button how a recording ends.
     fn paint_record_caption(&self, fg: &Painter, chrome: &Chrome, rect: Rect, a: f32) {
         let key = self.stop_key();
-        let before = fg.layout_no_wrap("Stop recording with".into(), FontId::proportional(13.0), TEXT_DIM.gamma_multiply(a));
+        let before =
+            fg.layout_no_wrap("Stop recording with".into(), FontId::proportional(13.0), TEXT_DIM.gamma_multiply(a));
         let cap = fg.layout_no_wrap(key, FontId::proportional(12.0), TEXT.gamma_multiply(a));
         let w = 14.0 + before.size().x + 8.0 + cap.size().x + 14.0 + 14.0;
         let h = chrome.hbar.height();
@@ -2178,7 +2280,10 @@ impl QueijoApp {
         paint::panel(fg, r, 12, a);
         let y = r.center().y;
         fg.galley(pos2(r.left() + 14.0, y - before.size().y / 2.0), before.clone(), TEXT_DIM);
-        let kr = Rect::from_min_size(pos2(r.left() + 14.0 + before.size().x + 8.0, y - 11.0), vec2(cap.size().x + 14.0, 22.0));
+        let kr = Rect::from_min_size(
+            pos2(r.left() + 14.0 + before.size().x + 8.0, y - 11.0),
+            vec2(cap.size().x + 14.0, 22.0),
+        );
         fg.rect_filled(kr, 5, Color32::from_white_alpha((24.0 * a) as u8));
         fg.galley(kr.center() - cap.size() / 2.0, cap, TEXT);
     }
@@ -2204,7 +2309,8 @@ impl QueijoApp {
         .max(2.0);
         fg.circle_filled(p, r, self.color.gamma_multiply(0.35 * a));
         paint::ring(fg, p, r, Stroke::new(1.5, Color32::WHITE.gamma_multiply(a)));
-        let label = fg.layout_no_wrap(format!("{} px", size.round()), FontId::proportional(12.0), TEXT.gamma_multiply(a));
+        let label =
+            fg.layout_no_wrap(format!("{} px", size.round()), FontId::proportional(12.0), TEXT.gamma_multiply(a));
         let br = Rect::from_min_size(p + vec2(r + 10.0, -11.0), label.size() + vec2(14.0, 8.0));
         paint::panel(fg, br, 6, a);
         fg.galley(br.min + vec2(7.0, 4.0), label, TEXT);
@@ -2235,7 +2341,8 @@ impl QueijoApp {
         let phase = ((elapsed - step as f64 * COUNTDOWN_STEP) / COUNTDOWN_STEP) as f32;
         let a = paint::ease_out((elapsed / 0.2) as f32);
 
-        let title = if self.kind == Kind::Gif { "GIF recording starts in a moment" } else { "Recording starts in a moment" };
+        let title =
+            if self.kind == Kind::Gif { "GIF recording starts in a moment" } else { "Recording starts in a moment" };
         let title = fg.layout_no_wrap(title.into(), FontId::proportional(15.0), TEXT.gamma_multiply(a));
         let stop1 = fg.layout_no_wrap("To stop, press".into(), FontId::proportional(13.0), TEXT_DIM.gamma_multiply(a));
         let key = fg.layout_no_wrap(self.stop_key(), FontId::proportional(12.5), TEXT.gamma_multiply(a));
@@ -2267,11 +2374,7 @@ impl QueijoApp {
             .collect();
         fg.add(egui::Shape::line(arc, Stroke::new(3.0, Color32::from_rgb(255, 69, 58).gamma_multiply(a))));
         let pop = 0.8 + 0.2 * paint::ease_out_back(phase * 4.0);
-        let n = fg.layout_no_wrap(
-            (steps - step).to_string(),
-            FontId::proportional(30.0 * pop),
-            TEXT.gamma_multiply(a),
-        );
+        let n = fg.layout_no_wrap((steps - step).to_string(), FontId::proportional(30.0 * pop), TEXT.gamma_multiply(a));
         fg.galley(ring_c - n.size() / 2.0, n, TEXT);
 
         let mut y = card.top() + 100.0;
@@ -2339,9 +2442,14 @@ impl QueijoApp {
             std::thread::sleep(Duration::from_millis(2));
         }
         if self.window_job.as_ref().is_some_and(|j| j.is_finished()) {
-            self.window = self.window_job.take().unwrap().join().ok().flatten().map(|[x, y, w, h]| {
-                Rect::from_min_size(pos2(x as f32, y as f32), vec2(w as f32, h as f32))
-            });
+            self.window = self
+                .window_job
+                .take()
+                .unwrap()
+                .join()
+                .ok()
+                .flatten()
+                .map(|[x, y, w, h]| Rect::from_min_size(pos2(x as f32, y as f32), vec2(w as f32, h as f32)));
             arrived = true;
         } else if self.window_job.is_some() {
             ctx.request_repaint_after(Duration::from_millis(15));
@@ -2461,7 +2569,6 @@ fn crop_frame(frame: &egui::ColorImage, sel: Rect, screen: Rect) -> RgbaImage {
     }
     out
 }
-
 
 fn shot_rect(shot: &WindowShot) -> Rect {
     let [x, y, w, h] = shot.frame;

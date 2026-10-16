@@ -218,7 +218,7 @@ fn locate(hay: &RgbaImage, needle: &RgbaImage) -> Option<(i64, i64)> {
             }
         }
     }
-    patches.sort_by(|a, b| b.0.cmp(&a.0));
+    patches.sort_by_key(|p| std::cmp::Reverse(p.0));
     patches.truncate(6);
 
     let mut votes: std::collections::HashMap<(i64, i64), u32> = std::collections::HashMap::new();
@@ -230,9 +230,8 @@ fn locate(hay: &RgbaImage, needle: &RgbaImage) -> Option<(i64, i64)> {
                 if row[x as usize] != first {
                     continue;
                 }
-                let matches = (0..P).all(|dy| {
-                    (0..P).all(|dx| at(&hay_px, hw, x + dx, y + dy) == at(&needle_px, nw, px + dx, py + dy))
-                });
+                let matches = (0..P)
+                    .all(|dy| (0..P).all(|dx| at(&hay_px, hw, x + dx, y + dy) == at(&needle_px, nw, px + dx, py + dy)));
                 if matches {
                     *votes.entry((x as i64 - px as i64, y as i64 - py as i64)).or_default() += 1;
                 }

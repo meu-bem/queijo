@@ -81,7 +81,9 @@ pub fn current() -> Vec<(Action, Vec<String>)> {
         .map(|action| {
             let keys = entries
                 .iter()
-                .filter(|e| is_queijo(&e.command) && Action::from_command(&e.command) == action && !e.binding.is_empty())
+                .filter(|e| {
+                    is_queijo(&e.command) && Action::from_command(&e.command) == action && !e.binding.is_empty()
+                })
                 .map(|e| e.binding.clone())
                 .collect();
             (action, keys)
@@ -106,7 +108,13 @@ pub fn apply(bindings: &[(Action, Vec<String>)]) -> Result<(), String> {
     let installed = ours
         .iter()
         .filter_map(|e| e.command.split_whitespace().next())
-        .map(|p| if p.contains('/') { p.to_string() } else { format!("{}/.local/bin/{p}", crate::config::home().display()) })
+        .map(|p| {
+            if p.contains('/') {
+                p.to_string()
+            } else {
+                format!("{}/.local/bin/{p}", crate::config::home().display())
+            }
+        })
         .find(|p| std::path::Path::new(p).is_file());
     let exe = match installed {
         Some(p) => p,

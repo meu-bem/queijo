@@ -2,18 +2,18 @@ mod app;
 mod capture;
 mod cli;
 mod config;
-mod monitors;
-mod output;
 mod gif;
 mod icon;
+mod monitors;
+mod output;
 mod paint;
 mod record;
 mod settings;
 mod shell_ext;
 mod shortcut;
 
-use std::os::linux::net::SocketAddrExt;
 use std::io::Write;
+use std::os::linux::net::SocketAddrExt;
 use std::os::unix::net::{SocketAddr, UnixListener, UnixStream};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -139,7 +139,10 @@ fn main() {
         Box::new(move |grabbed| match shell.with_pointer(grabbed) {
             Some(img) if img.dimensions() == desktop.dimensions() => {
                 let all = capture::split(&img, &all_monitors);
-                shown.iter().map(|m| all_monitors.iter().position(|a| a.index == m.index).map(|i| all[i].clone())).collect()
+                shown
+                    .iter()
+                    .map(|m| all_monitors.iter().position(|a| a.index == m.index).map(|i| all[i].clone()))
+                    .collect()
             }
             _ => vec![None; shown.len()],
         })
@@ -152,10 +155,7 @@ fn main() {
         .map(|(monitor, image)| app::Screen::new(viewport(&monitor, wayland), monitor, image))
         .collect();
 
-    let options = eframe::NativeOptions {
-        viewport: screens[0].viewport.clone(),
-        ..Default::default()
-    };
+    let options = eframe::NativeOptions { viewport: screens[0].viewport.clone(), ..Default::default() };
     let result = eframe::run_native(
         "queijo",
         options,
@@ -199,11 +199,8 @@ fn record_area(area: &str, cfg: &config::Config) -> ! {
         Ok(path) if req.gif => {
             let copied = std::fs::read(&path).is_ok_and(|data| output::copy_data("image/gif", &data).is_ok());
             let mb = std::fs::metadata(&path).map(|m| m.len() as f64 / 1e6).unwrap_or(0.0);
-            let detail = format!(
-                "{} · {mb:.1} MB{}",
-                output::tilde(&path),
-                if copied { " · copied to clipboard" } else { "" }
-            );
+            let detail =
+                format!("{} · {mb:.1} MB{}", output::tilde(&path), if copied { " · copied to clipboard" } else { "" });
             output::notify("GIF saved", &detail, Some(&path));
             println!("{}", path.display());
             std::process::exit(0);
