@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use image::RgbaImage;
 
 const DEST: &str = "org.gnome.Shell";
-const PATH: &str = "/io/github/meu_bem/Queijo";
-const IFACE: &str = "io.github.meu_bem.Queijo";
+pub(crate) const PATH: &str = "/app/queijo/Queijo";
+pub(crate) const IFACE: &str = "app.queijo.Queijo";
 
 /// A window on the active workspace, as the extension reports it.
 pub struct WindowInfo {
@@ -123,5 +123,32 @@ mod tests {
         assert_eq!(cut.dimensions(), (100, 100));
         assert!(crop_to_frame(&numbered(100, 100), [500, 0, 50, 50], [0, 0, 100, 100]).is_none());
         assert!(crop_to_frame(&numbered(100, 100), [10, 10, 0, 50], [0, 0, 100, 100]).is_none(), "empty frame");
+    }
+
+    /// The program and the Shell extension agree on every D-Bus name and path; a
+    /// mismatch would silently switch off the window picker and the indicator.
+    #[test]
+    fn the_extension_uses_the_names_the_program_does() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gnome-extension");
+        let extension = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.is_dir())
+            .expect("the extension folder");
+        let js = std::fs::read_to_string(extension.join("extension.js")).unwrap();
+        // The one field we need, without pulling in a JSON library for a test.
+        let metadata = std::fs::read_to_string(extension.join("metadata.json")).unwrap();
+        let uuid = metadata.split("\"uuid\"").nth(1).and_then(|rest| rest.split('"').nth(1)).expect("a uuid");
+
+        assert!(js.contains(&format!("const OBJECT_PATH = '{PATH}';")), "service path");
+        assert!(js.contains(&format!("<interface name=\"{IFACE}\">")), "service interface");
+        let recorder = crate::record::RECORDER_NAME;
+        assert!(js.contains(&format!("const RECORDER_NAME = '{recorder}';")), "recorder name");
+        assert!(js.contains(&format!("const RECORDER_PATH = '{}';", crate::record::RECORDER_PATH)), "recorder path");
+        assert!(
+            include_str!("record.rs").contains(&format!("#[zbus::interface(name = \"{recorder}\")]")),
+            "the recorder object's interface is named like its bus name"
+        );
+        assert_eq!(uuid, extension.file_name().unwrap().to_str().unwrap(), "folder name is the uuid");
     }
 }

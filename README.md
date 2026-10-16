@@ -76,7 +76,7 @@ include it; enable it and log out and back in (on Wayland the Shell only loads n
 extensions at login):
 
 ```sh
-gnome-extensions enable queijo@meu-bem.github.io
+gnome-extensions enable queijo@queijo.app
 ```
 
 It is also released on its own as `queijo-gnome-extension-<version>.zip`

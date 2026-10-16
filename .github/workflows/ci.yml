@@ -61,7 +61,7 @@ jobs:
           sudo apt-get install -y desktop-file-utils shellcheck
       - name: GNOME Shell extension
         run: |
-          ext=gnome-extension/queijo@meu-bem.github.io
+          ext=gnome-extension/queijo@queijo.app
           node --check "$ext/extension.js"
           python3 - "$ext" <<'PY'
           import json, os, sys

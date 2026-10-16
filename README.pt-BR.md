@@ -79,7 +79,7 @@ fornece o seletor de janelas e o indicador de gravação na barra superior. O
 Wayland o Shell só carrega extensões novas no login):
 
 ```sh
-gnome-extensions enable queijo@meu-bem.github.io
+gnome-extensions enable queijo@queijo.app
 ```
 
 Ela também sai sozinha como `queijo-gnome-extension-<versão>.zip`

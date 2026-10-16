@@ -9,9 +9,9 @@ const { Clutter, Gio, GLib, GObject, Meta, Shell, St } = imports.gi;
 const Main = imports.ui.main;
 const PanelMenu = imports.ui.panelMenu;
 
-const OBJECT_PATH = '/io/github/meu_bem/Queijo';
+const OBJECT_PATH = '/app/queijo/Queijo';
 const IFACE = `<node>
-  <interface name="io.github.meu_bem.Queijo">
+  <interface name="app.queijo.Queijo">
     <method name="ListWindows">
       <arg type="a(tsssiiiiiiiib)" direction="out" name="windows"/>
     </method>
@@ -23,8 +23,8 @@ const IFACE = `<node>
   </interface>
 </node>`;
 
-const RECORDER_NAME = 'io.github.meu_bem.Queijo.Recorder';
-const RECORDER_PATH = '/io/github/meu_bem/Queijo/Recorder';
+const RECORDER_NAME = 'app.queijo.Queijo.Recorder';
+const RECORDER_PATH = '/app/queijo/Queijo/Recorder';
 
 const PICKABLE = [Meta.WindowType.NORMAL, Meta.WindowType.DIALOG, Meta.WindowType.MODAL_DIALOG];
 

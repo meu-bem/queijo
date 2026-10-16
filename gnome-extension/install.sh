@@ -3,7 +3,7 @@
 # On Wayland the Shell only picks up new extensions at login, so log out and
 # back in afterwards.
 set -e
-UUID=queijo@meu-bem.github.io
+UUID=queijo@queijo.app
 DEST="$HOME/.local/share/gnome-shell/extensions/$UUID"
 rm -rf "$DEST"
 mkdir -p "$DEST"

@@ -7,12 +7,12 @@
 #
 # Then enable the GNOME Shell extension (optional: window picker and the
 # recording indicator) and log out and back in:
-#   gnome-extensions enable queijo@meu-bem.github.io
+#   gnome-extensions enable queijo@queijo.app
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 prefix="${PREFIX:-$HOME/.local}"
-ext=queijo@meu-bem.github.io
+ext=queijo@queijo.app
 
 refresh_caches() {
     if command -v gtk-update-icon-cache >/dev/null 2>&1 && [ -d "$prefix/share/icons/hicolor" ]; then

@@ -9,7 +9,7 @@ set -eu
 cd "$(dirname "$0")/.."
 
 version=$(scripts/version.sh)
-ext=queijo@meu-bem.github.io
+ext=queijo@queijo.app
 rm -rf dist
 mkdir -p dist
 

@@ -68,12 +68,12 @@ pub const STOP: &[u8] = b"stop";
 
 /// Owned while recording; the Queijo GNOME Shell extension shows a top-bar
 /// indicator for as long as this name exists, and calls `Stop` when clicked.
-const RECORDER_NAME: &str = "io.github.meu_bem.Queijo.Recorder";
-const RECORDER_PATH: &str = "/io/github/meu_bem/Queijo/Recorder";
+pub(crate) const RECORDER_NAME: &str = "app.queijo.Queijo.Recorder";
+pub(crate) const RECORDER_PATH: &str = "/app/queijo/Queijo/Recorder";
 
 struct Control(mpsc::Sender<()>);
 
-#[zbus::interface(name = "io.github.meu_bem.Queijo.Recorder")]
+#[zbus::interface(name = "app.queijo.Queijo.Recorder")]
 impl Control {
     fn stop(&self) {
         let _ = self.0.send(());
