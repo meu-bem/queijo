@@ -7,12 +7,13 @@
 #
 # Then enable the GNOME Shell extension (optional: window picker and the
 # recording indicator) and log out and back in:
-#   gnome-extensions enable queijo@queijo.app
+#   queijo --enable-extension
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 prefix="${PREFIX:-$HOME/.local}"
 ext=queijo@queijo.app
+ext_module=queijo-gnome45@queijo.app
 
 refresh_caches() {
     if command -v gtk-update-icon-cache >/dev/null 2>&1 && [ -d "$prefix/share/icons/hicolor" ]; then
@@ -26,7 +27,7 @@ refresh_caches() {
 if [ "${1:-}" = "--uninstall" ]; then
     rm -f "$prefix/bin/queijo" "$prefix/share/applications/queijo.desktop" \
         "$prefix/share/applications/queijo-settings.desktop"
-    rm -rf "$prefix/share/gnome-shell/extensions/$ext"
+    rm -rf "$prefix/share/gnome-shell/extensions/$ext" "$prefix/share/gnome-shell/extensions/$ext_module"
     for dir in "$prefix"/share/icons/hicolor/*/apps; do
         rm -f "$dir/queijo.png"
     done
@@ -47,4 +48,6 @@ done
 refresh_caches
 
 echo "Queijo was installed in $prefix"
-echo "Optional: gnome-extensions enable $ext   (then log out and back in)"
+echo "Next: run   $prefix/bin/queijo --doctor   to see which libraries and programs this system still needs,"
+echo "with the command to install them (packaging/dependencies.md lists them for every distribution)."
+echo "Optional, on GNOME: queijo --enable-extension   (then log out and back in)"

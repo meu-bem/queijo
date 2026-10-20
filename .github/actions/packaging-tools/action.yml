@@ -1,0 +1,20 @@
+name: Packaging tools
+description: What scripts/build-packages.sh needs, besides Rust (zig as the linker, to aim at an old glibc, and the cargo plugins).
+runs:
+  using: composite
+  steps:
+    - run: sudo apt-get update && sudo apt-get install -y zip python3-pip
+      shell: bash
+    - run: rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
+      shell: bash
+    # Pinned: the version the build was tried with.
+    - run: pip install --user ziglang==0.17.0 && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      shell: bash
+    - uses: actions/cache@v4
+      id: cargo-tools
+      with:
+        path: ~/.cargo/bin
+        key: cargo-tools-${{ runner.os }}-zigbuild-deb-rpm-v1
+    - if: steps.cargo-tools.outputs.cache-hit != 'true'
+      run: cargo install cargo-zigbuild cargo-deb cargo-generate-rpm --locked
+      shell: bash

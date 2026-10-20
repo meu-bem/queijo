@@ -1,0 +1,40 @@
+# Maintainer: Mateus Santos <a.mateussm1.5@gmail.com>
+# Made from packaging/aur/PKGBUILD.in by scripts/aur.sh at each release.
+pkgname=queijo-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='Screenshot, screencast and GIF tool for Linux (GNOME, KDE, Xfce, Sway, ...)'
+arch=('x86_64' 'aarch64')
+url='https://github.com/meu-bem/queijo'
+license=('MIT')
+# The libraries are opened when the editor starts, so they are listed here by hand
+# (src/doctor.rs and packaging/dependencies.md say the same).
+depends=('ffmpeg' 'glib2' 'wl-clipboard' 'wayland' 'libxkbcommon' 'libxkbcommon-x11' 'libglvnd'
+         'libx11' 'libxcb' 'libxcursor' 'libxi' 'libxrandr')
+optdepends=('xclip: clipboard on X11'
+            'gifsicle: smaller GIFs'
+            'zenity: folder picker where the desktop has none'
+            'libnotify: notifications where D-Bus has none'
+            'gstreamer: recording through the desktop portal'
+            'gst-plugin-pipewire: recording through the desktop portal'
+            'gst-plugins-good: recording through the desktop portal'
+            'gst-libav: GIFs recorded through the desktop portal'
+            'wf-recorder: recording on Sway and Hyprland'
+            'grim: screenshots on Sway and Hyprland'
+            'spectacle: screenshots on KDE Plasma'
+            'gnome-screenshot: screenshot fallback')
+provides=('queijo')
+conflicts=('queijo')
+source_x86_64=("$pkgname-$pkgver-x86_64.tar.gz::$url/releases/download/v$pkgver/queijo-$pkgver-x86_64-linux.tar.gz")
+source_aarch64=("$pkgname-$pkgver-aarch64.tar.gz::$url/releases/download/v$pkgver/queijo-$pkgver-aarch64-linux.tar.gz")
+sha256sums_x86_64=('@SHA256_X86_64@')
+sha256sums_aarch64=('@SHA256_AARCH64@')
+
+package() {
+    cd "$srcdir/queijo-$pkgver-$CARCH-linux"
+    install -Dm755 bin/queijo "$pkgdir/usr/bin/queijo"
+    install -dm755 "$pkgdir/usr/share"
+    cp -r share/. "$pkgdir/usr/share/"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/queijo/LICENSE"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/queijo/README.md"
+}

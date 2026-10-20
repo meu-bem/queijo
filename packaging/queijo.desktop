@@ -7,6 +7,8 @@ Icon=queijo
 Terminal=false
 Categories=Utility;
 Keywords=screenshot;screencast;gif;capture;
+# KDE Plasma only lets programs listed here use its screenshot service.
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
 Actions=settings;
 
 [Desktop Action settings]

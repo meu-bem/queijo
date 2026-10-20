@@ -1,0 +1,7 @@
+{
+  "uuid": "queijo-gnome45@queijo.app",
+  "name": "Queijo helper",
+  "description": "Lets the Queijo screenshot tool list and capture windows and take screenshots, and shows a recording indicator in the top bar. For GNOME Shell 45 and later; GNOME 42 to 44 use queijo@queijo.app.",
+  "shell-version": ["45", "46", "47", "48", "49"],
+  "version": 1
+}

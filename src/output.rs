@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -33,39 +34,56 @@ pub fn copy_png(png: &[u8]) -> Result<(), String> {
 }
 
 pub fn copy_data(mime: &str, data: &[u8]) -> Result<(), String> {
-    let png = data;
     let wl: [&str; 2] = ["--type", mime];
     let x: [&str; 5] = ["-selection", "clipboard", "-t", mime, "-i"];
-    let attempts: [(&str, &[&str]); 2] = if crate::monitors::is_wayland() {
-        [("wl-copy", &wl), ("xclip", &x)]
+    // The session's own tool first. (xsel is not tried: it cannot set a MIME type,
+    // and a picture is all we ever copy.)
+    if crate::monitors::is_wayland() {
+        copy_with(&[("wl-copy", &wl), ("xclip", &x)], "wl-clipboard", data)
     } else {
-        [("xclip", &x), ("wl-copy", &wl)]
-    };
-
-    let mut last_err = crate::i18n::t("error.no_clipboard").to_string();
-    for (program, args) in attempts {
-        match pipe_to(program, args, png) {
-            Ok(()) => return Ok(()),
-            Err(e) => last_err = format!("{program}: {e}"),
-        }
+        copy_with(&[("xclip", &x), ("wl-copy", &wl)], "xclip", data)
     }
-    Err(last_err)
 }
 
-fn pipe_to(program: &str, args: &[&str], data: &[u8]) -> Result<(), String> {
-    let mut child = Command::new(program)
+/// Tries each tool in turn. If none is installed, the error says which package
+/// (`package`) to get; if one is but fails, it says why.
+fn copy_with(attempts: &[(&str, &[&str])], package: &str, data: &[u8]) -> Result<(), String> {
+    let mut failure = None;
+    for (program, args) in attempts {
+        match pipe_to(program, args, data) {
+            Ok(()) => return Ok(()),
+            Err(PipeError::Missing) => {}
+            Err(PipeError::Failed(e)) => failure = Some(format!("{program}: {e}")),
+        }
+    }
+    Err(failure.unwrap_or_else(|| crate::i18n::tf("error.no_clipboard", &[("package", package)])))
+}
+
+enum PipeError {
+    /// The program is not installed.
+    Missing,
+    Failed(String),
+}
+
+fn pipe_to(program: &str, args: &[&str], data: &[u8]) -> Result<(), PipeError> {
+    let mut child = match Command::new(program)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| e.to_string())?;
-    child.stdin.take().ok_or("no stdin")?.write_all(data).map_err(|e| e.to_string())?;
-    let status = child.wait().map_err(|e| e.to_string())?;
+    {
+        Ok(child) => child,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(PipeError::Missing),
+        Err(e) => return Err(PipeError::Failed(e.to_string())),
+    };
+    let failed = |e: String| PipeError::Failed(e);
+    child.stdin.take().ok_or_else(|| failed("no stdin".into()))?.write_all(data).map_err(|e| failed(e.to_string()))?;
+    let status = child.wait().map_err(|e| failed(e.to_string()))?;
     if status.success() {
         Ok(())
     } else {
-        Err(format!("exited with {status}"))
+        Err(failed(format!("exited with {status}")))
     }
 }
 
@@ -117,8 +135,37 @@ fn notify_always(summary: &str, body: &str, icon: Option<&Path>) {
     if std::env::var_os("QUEIJO_NO_NOTIFY").is_some() {
         return;
     }
+    if let Err(e) = notify_dbus(summary, body, icon) {
+        eprintln!("queijo: notification over D-Bus failed ({e}), trying notify-send");
+        notify_send(summary, body, icon);
+    }
+}
+
+/// `org.freedesktop.Notifications.Notify`, which every desktop's notifications speak.
+fn notify_dbus(summary: &str, body: &str, icon: Option<&Path>) -> Result<(), String> {
+    use zbus::zvariant::Value;
+
+    let conn = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
+    let mut hints: HashMap<&str, Value> = HashMap::new();
+    if let Some(icon) = icon {
+        hints.insert("image-path", icon.to_string_lossy().into_owned().into());
+    }
+    conn.call_method(
+        Some("org.freedesktop.Notifications"),
+        "/org/freedesktop/Notifications",
+        Some("org.freedesktop.Notifications"),
+        "Notify",
+        &("Queijo", 0u32, "", summary, body, Vec::<&str>::new(), hints, NOTIFICATION_MS),
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+const NOTIFICATION_MS: i32 = 4000;
+
+fn notify_send(summary: &str, body: &str, icon: Option<&Path>) {
     let mut cmd = Command::new("notify-send");
-    cmd.args(["--app-name=Queijo", "--expire-time=4000"]);
+    cmd.args(["--app-name=Queijo", &format!("--expire-time={NOTIFICATION_MS}")]);
     if let Some(icon) = icon {
         cmd.arg(format!("--icon={}", icon.display()));
     }
@@ -153,6 +200,26 @@ mod tests {
 
     fn target(dir: &Path, name: &str) -> Target {
         Target { folder: dir.to_string_lossy().into_owned(), name: name.into() }
+    }
+
+    #[test]
+    fn copying_skips_missing_tools_and_uses_the_next() {
+        let attempts: [(&str, &[&str]); 2] = [("queijo-no-such-tool", &[]), ("cat", &[])];
+        assert!(copy_with(&attempts, "somepkg", b"data").is_ok());
+    }
+
+    #[test]
+    fn copying_names_the_package_when_no_tool_is_installed() {
+        let attempts: [(&str, &[&str]); 1] = [("queijo-no-such-tool", &[])];
+        let err = copy_with(&attempts, "somepkg", b"data").unwrap_err();
+        assert!(err.contains("somepkg"), "{err}");
+    }
+
+    #[test]
+    fn copying_reports_why_an_installed_tool_failed() {
+        let attempts: [(&str, &[&str]); 2] = [("false", &[]), ("queijo-no-such-tool", &[])];
+        let err = copy_with(&attempts, "somepkg", b"data").unwrap_err();
+        assert!(err.starts_with("false:"), "{err}");
     }
 
     #[test]

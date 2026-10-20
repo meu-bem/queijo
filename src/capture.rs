@@ -4,13 +4,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use image::RgbaImage;
 
+use crate::desktop::{Desktop, Env, Session};
 use crate::monitors::Monitor;
 
-/// A connection GNOME Shell accepts screenshot requests from.
+/// A connection GNOME Shell takes screenshots for: through its own service, or (since
+/// GNOME 49 refuses us that) through the Queijo extension inside it.
 #[derive(Clone)]
 pub struct Shell {
     conn: zbus::blocking::Connection,
     dir: PathBuf,
+    extension: bool,
 }
 
 impl Shell {
@@ -31,8 +34,17 @@ impl Shell {
     /// a while encoding them.
     pub fn with_pointer(&self, requested: &AtomicBool) -> Option<RgbaImage> {
         requested.store(true, Ordering::Release);
-        finish(shell_shot(&self.conn, "Screenshot", &self.path("pointer"), |f| (true, false, f).into()))
+        let path = self.path("pointer");
+        if self.extension {
+            return finish(extension_shot(&self.conn, &path, true));
+        }
+        finish(shell_shot(&self.conn, "Screenshot", &path, |f| (true, false, f).into()))
     }
+}
+
+/// Waits for the decoded picture, keeping the reason if there is none.
+fn finish_shot(shot: Result<Decoder, String>) -> Result<RgbaImage, String> {
+    shot.and_then(|h| h.join().map_err(|_| "decoder panicked".to_string())?)
 }
 
 fn finish(shot: Result<Decoder, String>) -> Option<RgbaImage> {
@@ -52,6 +64,57 @@ pub struct Capture {
     pub shell: Option<Shell>,
     /// The focused window, when it was asked for.
     pub window: Option<RgbaImage>,
+    /// Where the mouse pointer was, when the backend can say (the Shell can draw
+    /// it in itself, see `Shell::with_pointer`).
+    pub cursor: Option<crate::x11::Cursor>,
+}
+
+/// A way of taking the screenshot of the whole desktop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Backend {
+    GnomeShell,
+    /// The X server itself, for a real X11 session.
+    X11,
+    /// The Queijo GNOME Shell extension, which takes the screenshot from inside the Shell.
+    Extension,
+    /// KDE Plasma's screenshot service.
+    KWin,
+    Spectacle,
+    /// `xdg-desktop-portal`, which every modern desktop has.
+    Portal,
+    GnomeScreenshot,
+    Grim,
+}
+
+impl Backend {
+    pub fn name(self) -> &'static str {
+        match self {
+            Backend::GnomeShell => "GNOME Shell",
+            Backend::X11 => "X11",
+            Backend::Extension => "Queijo GNOME Shell extension",
+            Backend::KWin => "KWin",
+            Backend::Spectacle => "spectacle",
+            Backend::Portal => "desktop portal",
+            Backend::GnomeScreenshot => "gnome-screenshot",
+            Backend::Grim => "grim",
+        }
+    }
+}
+
+/// The backends for this desktop, in the order they are tried; the first that works wins.
+pub fn screenshot_backends(env: &Env) -> Vec<Backend> {
+    use Backend::*;
+    match (env.session, &env.desktop) {
+        (Session::X11, Desktop::Gnome) => vec![GnomeShell, X11, Portal, GnomeScreenshot],
+        (Session::X11, _) => vec![X11, Portal],
+        (Session::Wayland, Desktop::Gnome) => vec![GnomeShell, Extension, Portal, GnomeScreenshot],
+        (Session::Wayland, Desktop::Kde) => vec![KWin, Spectacle, Portal],
+        // These speak wlr-screencopy, which grim uses: faster than the portal and it never asks.
+        (Session::Wayland, Desktop::Sway | Desktop::Hyprland) => vec![Grim, Portal],
+        (Session::Wayland, _) => vec![Portal, Grim],
+        // No display variables (started from somewhere odd): the GNOME Shell answers on D-Bus anyway.
+        (Session::Headless, _) => vec![GnomeShell, Extension, Portal, GnomeScreenshot, Grim],
+    }
 }
 
 /// Like `capture`, but when `window_taken` is still false it first grabs the
@@ -62,29 +125,105 @@ pub fn capture_with_window(window_taken: &AtomicBool) -> Result<Capture, String>
     let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     let file = dir.join(format!("queijo-{}-desktop.png", std::process::id()));
 
-    let shell = connect().map(|conn| Shell { conn, dir });
-    let window = match &shell {
-        Some(shell) if !window_taken.load(Ordering::Acquire) => shell.window(window_taken),
-        _ => None,
-    };
-    window_taken.store(true, Ordering::Release);
-
-    let desktop = shell
-        .as_ref()
-        .ok_or_else(|| "no session bus".to_string())
-        .and_then(|shell| shell_shot(&shell.conn, "Screenshot", &file, |f| (false, false, f).into()))
-        .and_then(|h| h.join().map_err(|_| "decoder panicked".to_string())?);
-    match desktop {
-        Ok(desktop) => Ok(Capture { desktop, shell, window }),
-        Err(e) => {
-            eprintln!("queijo: GNOME Shell screenshot failed ({e}), falling back to gnome-screenshot");
-            let result = run("gnome-screenshot", &["-f"], &file).or_else(|e| {
-                eprintln!("queijo: gnome-screenshot failed ({e}), trying grim");
-                run("grim", &[], &file)
-            });
-            Ok(Capture { desktop: result.and_then(|_| load(&file))?, shell: None, window: None })
+    let chain = screenshot_backends(Env::current());
+    if !chain.contains(&Backend::GnomeShell) {
+        // Only the Shell can take the focused window's picture, and nobody else is waiting for it.
+        window_taken.store(true, Ordering::Release);
+    }
+    let mut backends = chain.into_iter().peekable();
+    while let Some(backend) = backends.next() {
+        match backend.capture(dir.clone(), &file, window_taken) {
+            Ok(shot) => return Ok(shot),
+            Err(e) => match backends.peek() {
+                Some(next) => eprintln!("queijo: {} failed ({e}), trying {}", backend.name(), next.name()),
+                None => return Err(e),
+            },
         }
     }
+    Err("no screenshot backend".into())
+}
+
+impl Backend {
+    fn capture(self, dir: PathBuf, file: &Path, window_taken: &AtomicBool) -> Result<Capture, String> {
+        match self {
+            Backend::GnomeShell => {
+                let shell = connect().map(|conn| Shell { conn, dir, extension: false });
+                let window = match &shell {
+                    Some(shell) if !window_taken.load(Ordering::Acquire) => shell.window(window_taken),
+                    _ => None,
+                };
+                window_taken.store(true, Ordering::Release);
+
+                let desktop = shell
+                    .as_ref()
+                    .ok_or_else(|| "no session bus".to_string())
+                    .and_then(|shell| shell_shot(&shell.conn, "Screenshot", file, |f| (false, false, f).into()))
+                    .and_then(|h| h.join().map_err(|_| "decoder panicked".to_string())?)?;
+                Ok(Capture { desktop, shell, window, cursor: None })
+            }
+            Backend::Extension => {
+                let conn = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
+                let desktop = finish_shot(extension_shot(&conn, file, false))?;
+                Ok(Capture { desktop, shell: Some(Shell { conn, dir, extension: true }), window: None, cursor: None })
+            }
+            Backend::X11 => {
+                let (desktop, cursor) = crate::x11::screenshot(None)?;
+                Ok(Capture { desktop, shell: None, window: None, cursor })
+            }
+            Backend::KWin => {
+                // KDE can't list windows, so the focused one is taken now, before ours take the
+                // focus, and found again in the picture of the screen.
+                let window = if window_taken.load(Ordering::Acquire) {
+                    None
+                } else {
+                    crate::kwin::active_window().map_err(|e| eprintln!("queijo: no active window from KWin ({e})")).ok()
+                };
+                window_taken.store(true, Ordering::Release);
+                let desktop = crate::kwin::screenshot()?;
+                Ok(Capture { desktop, shell: None, window, cursor: None })
+            }
+            // -b: no window, -n: no notification, -f: every monitor, -o: write to this file.
+            Backend::Spectacle => run("spectacle", &["-b", "-n", "-f", "-o"], file).and_then(|_| tool_shot(file)),
+            Backend::Portal => {
+                let image = crate::portal::screenshot()?;
+                Ok(Capture {
+                    desktop: fit_to_monitors(image, &crate::monitors::detect()),
+                    shell: None,
+                    window: None,
+                    cursor: None,
+                })
+            }
+            Backend::GnomeScreenshot => run("gnome-screenshot", &["-f"], file).and_then(|_| tool_shot(file)),
+            Backend::Grim => run("grim", &[], file).and_then(|_| tool_shot(file)),
+        }
+    }
+}
+
+/// The portal says nothing about the monitors, so a picture whose shape is not the
+/// monitors' (it was taken at another scale in each direction) is stretched to
+/// their size in logical pixels. A uniform scale, which `split` handles, is kept.
+fn fit_to_monitors(image: RgbaImage, monitors: &[Monitor]) -> RgbaImage {
+    let min_x = monitors.iter().map(|m| m.x).min();
+    let min_y = monitors.iter().map(|m| m.y).min();
+    let max_x = monitors.iter().map(|m| m.x + m.width).max();
+    let max_y = monitors.iter().map(|m| m.y + m.height).max();
+    let (Some(min_x), Some(min_y), Some(max_x), Some(max_y)) = (min_x, min_y, max_x, max_y) else { return image };
+    let (width, height) = ((max_x - min_x).max(1) as f64, (max_y - min_y).max(1) as f64);
+    let (sx, sy) = (image.width() as f64 / width, image.height() as f64 / height);
+    if (sx / sy - 1.0).abs() < 0.01 {
+        return image;
+    }
+    eprintln!(
+        "queijo: the portal's picture is {}x{} but the monitors are {width}x{height}; resizing it",
+        image.width(),
+        image.height()
+    );
+    image::imageops::resize(&image, width as u32, height as u32, image::imageops::FilterType::Triangle)
+}
+
+/// What an external tool wrote: a picture of the desktop and nothing more.
+fn tool_shot(file: &Path) -> Result<Capture, String> {
+    Ok(Capture { desktop: load(file)?, shell: None, window: None, cursor: None })
 }
 
 fn load(path: &Path) -> Result<RgbaImage, String> {
@@ -143,6 +282,13 @@ fn shell_shot(
         let _ = std::fs::remove_file(path);
         return Err(format!("{method}: the shell refused"));
     }
+    let path = path.to_path_buf();
+    Ok(std::thread::spawn(move || load(&path)))
+}
+
+/// A screenshot by the Queijo extension, decoded in the background.
+fn extension_shot(conn: &zbus::blocking::Connection, path: &Path, include_cursor: bool) -> Result<Decoder, String> {
+    crate::shell_ext::screenshot(conn, path, include_cursor)?;
     let path = path.to_path_buf();
     Ok(std::thread::spawn(move || load(&path)))
 }
@@ -286,6 +432,124 @@ mod tests {
             state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             Rgba([(state >> 8) as u8, (state >> 16) as u8, (state >> 24) as u8, 255])
         })
+    }
+
+    /// A desktop picture where each monitor is its own flat colour.
+    fn painted(width: u32, height: u32, parts: &[(u32, u32, u32, u32, [u8; 4])]) -> RgbaImage {
+        let mut img = RgbaImage::new(width, height);
+        for &(x, y, w, h, color) in parts {
+            for py in y..(y + h).min(height) {
+                for px in x..(x + w).min(width) {
+                    img.put_pixel(px, py, Rgba(color));
+                }
+            }
+        }
+        img
+    }
+
+    #[test]
+    fn splits_a_desktop_at_one_and_a_half_times() {
+        // Logical 1280x720 and 1920x1080 side by side, taken at 1.5x: 4800x1620 pixels.
+        let monitors = [monitor(0, 0, 1280, 720), monitor(1280, 0, 1920, 1080)];
+        let left = [255, 0, 0, 255];
+        let right = [0, 0, 255, 255];
+        let desktop = painted(4800, 1620, &[(0, 0, 1920, 1080, left), (1920, 0, 2880, 1620, right)]);
+        let parts = split(&desktop, &monitors);
+        assert_eq!(parts[0].dimensions(), (1920, 1080));
+        assert_eq!(parts[1].dimensions(), (2880, 1620));
+        // Every pixel of each piece is its own monitor's colour: no bleeding across the seam.
+        assert!(parts[0].pixels().all(|p| p.0 == left));
+        assert!(parts[1].pixels().all(|p| p.0 == right));
+    }
+
+    #[test]
+    fn splits_a_desktop_when_the_scale_does_not_divide_evenly() {
+        // 1366 + 1920 logical pixels at 1.25x is 4107.5; the picture rounds to 4108.
+        let monitors = [monitor(0, 0, 1366, 768), monitor(1366, 0, 1920, 1080)];
+        let desktop = painted(4108, 1350, &[(0, 0, 1708, 960, [1, 1, 1, 255]), (1708, 0, 2400, 1350, [2, 2, 2, 255])]);
+        let parts = split(&desktop, &monitors);
+        let (a, b) = (&parts[0], &parts[1]);
+        assert!((a.width() as i32 - 1708).abs() <= 1 && (a.height() as i32 - 960).abs() <= 1, "{:?}", a.dimensions());
+        assert!((b.width() as i32 - 2400).abs() <= 1 && (b.height() as i32 - 1350).abs() <= 1, "{:?}", b.dimensions());
+        // Away from the seam each piece is its own colour; at it, off by a pixel at most.
+        assert_eq!(a.get_pixel(10, 10).0, [1, 1, 1, 255]);
+        assert_eq!(b.get_pixel(b.width() - 10, 10).0, [2, 2, 2, 255]);
+        assert_eq!(b.get_pixel(10, b.height() - 10).0, [2, 2, 2, 255]);
+    }
+
+    #[test]
+    fn splits_monitors_stacked_and_left_of_the_origin_when_scaled() {
+        // A monitor to the left (negative x) and one below, at 2x.
+        let monitors = [monitor(-800, 0, 800, 600), monitor(0, 0, 1024, 768), monitor(0, 768, 1024, 400)];
+        let desktop = painted(
+            3648,
+            2336,
+            &[
+                (0, 0, 1600, 1200, [10, 0, 0, 255]),
+                (1600, 0, 2048, 1536, [0, 10, 0, 255]),
+                (1600, 1536, 2048, 800, [0, 0, 10, 255]),
+            ],
+        );
+        let parts = split(&desktop, &monitors);
+        assert_eq!(parts[0].dimensions(), (1600, 1200));
+        assert_eq!(parts[1].dimensions(), (2048, 1536));
+        assert_eq!(parts[2].dimensions(), (2048, 800));
+        assert_eq!(parts[0].get_pixel(5, 5).0, [10, 0, 0, 255]);
+        assert_eq!(parts[1].get_pixel(5, 5).0, [0, 10, 0, 255]);
+        assert_eq!(parts[2].get_pixel(5, 5).0, [0, 0, 10, 255]);
+    }
+
+    #[test]
+    fn tries_the_gnome_shell_first_then_the_tools() {
+        let wayland = Env { session: Session::Wayland, desktop: Desktop::Gnome, compositing: true };
+        assert_eq!(
+            screenshot_backends(&wayland),
+            [Backend::GnomeShell, Backend::Extension, Backend::Portal, Backend::GnomeScreenshot],
+            "the Shell stays first on GNOME with Wayland, and our extension is the next thing to ask"
+        );
+    }
+
+    #[test]
+    fn every_desktop_ends_with_something_that_works_anywhere() {
+        let env = |session, desktop| Env { session, desktop, compositing: true };
+        for desktop in [Desktop::Gnome, Desktop::Kde, Desktop::Sway, Desktop::Other(String::new())] {
+            for session in [Session::Wayland, Session::X11, Session::Headless] {
+                let chain = screenshot_backends(&env(session, desktop.clone()));
+                assert!(chain.contains(&Backend::Portal), "{session:?} {desktop:?}: {chain:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn leaves_a_uniformly_scaled_picture_alone_and_stretches_a_skewed_one() {
+        let monitors = [monitor(0, 0, 1600, 900)];
+        let same = fit_to_monitors(RgbaImage::new(3200, 1800), &monitors);
+        assert_eq!(same.dimensions(), (3200, 1800));
+        let skewed = fit_to_monitors(RgbaImage::new(3200, 1200), &monitors);
+        assert_eq!(skewed.dimensions(), (1600, 900));
+        assert_eq!(fit_to_monitors(RgbaImage::new(10, 10), &[]).dimensions(), (10, 10));
+    }
+
+    #[test]
+    fn kde_on_wayland_asks_kwin_then_spectacle() {
+        let kde = Env { session: Session::Wayland, desktop: Desktop::Kde, compositing: true };
+        assert_eq!(screenshot_backends(&kde), [Backend::KWin, Backend::Spectacle, Backend::Portal]);
+    }
+
+    #[test]
+    fn grim_comes_first_on_wlroots_compositors() {
+        let env = |desktop| Env { session: Session::Wayland, desktop, compositing: true };
+        assert_eq!(screenshot_backends(&env(Desktop::Sway)), [Backend::Grim, Backend::Portal]);
+        assert_eq!(screenshot_backends(&env(Desktop::Hyprland)), [Backend::Grim, Backend::Portal]);
+        assert_eq!(screenshot_backends(&env(Desktop::Other("river".into()))), [Backend::Portal, Backend::Grim]);
+    }
+
+    #[test]
+    fn asks_the_x_server_on_x11() {
+        let env = |desktop| Env { session: Session::X11, desktop, compositing: true };
+        assert_eq!(screenshot_backends(&env(Desktop::Gnome))[..2], [Backend::GnomeShell, Backend::X11]);
+        assert_eq!(screenshot_backends(&env(Desktop::Xfce))[0], Backend::X11);
+        assert!(!screenshot_backends(&env(Desktop::Xfce)).contains(&Backend::GnomeShell));
     }
 
     fn crop(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> RgbaImage {

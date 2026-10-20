@@ -192,14 +192,23 @@ mod tests {
     }
 
     /// Every `t("key")` / `tf("key", …)` in the sources.
-    fn keys_used_in_sources() -> BTreeSet<String> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut used = BTreeSet::new();
+    /// Every `.rs` file under `dir`, folders included.
+    fn sources(dir: &std::path::Path, found: &mut Vec<std::path::PathBuf>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
-            if path.extension().is_none_or(|e| e != "rs") || path.ends_with("i18n.rs") {
-                continue;
+            if path.is_dir() {
+                sources(&path, found);
+            } else if path.extension().is_some_and(|e| e == "rs") && !path.ends_with("i18n.rs") {
+                found.push(path);
             }
+        }
+    }
+
+    fn keys_used_in_sources() -> BTreeSet<String> {
+        let mut files = Vec::new();
+        sources(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+        let mut used = BTreeSet::new();
+        for path in files {
             let source = std::fs::read_to_string(&path).unwrap();
             for call in ["t(\"", "tf(\""] {
                 for (at, _) in source.match_indices(call) {

@@ -46,7 +46,18 @@ fn the_help_lists_the_options() {
     assert!(out.status.success());
     let help = stdout(&out);
     assert!(help.contains("Screenshot, screencast and GIF tool"), "{help}");
-    for option in ["--kind", "--area", "--monitor", "--quick", "--settings", "--stop", "--list-monitors"] {
+    for option in [
+        "--kind",
+        "--area",
+        "--monitor",
+        "--quick",
+        "--settings",
+        "--stop",
+        "--list-monitors",
+        "--list-windows",
+        "--enable-extension",
+        "--doctor",
+    ] {
         assert!(help.contains(option), "{option} is missing from the help");
     }
     assert!(!help.contains("--record"), "the internal option stays hidden");
@@ -64,6 +75,47 @@ fn rejects_bad_arguments() {
 fn listing_monitors_works_without_a_display() {
     let out = run(&["--list-monitors"]);
     assert!(out.status.success(), "{}", stderr(&out));
+}
+
+#[test]
+fn the_doctor_reports_without_a_display() {
+    let out = run(&["--doctor"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let report = stdout(&out);
+    assert!(report.starts_with(&format!("queijo {}\n", env!("CARGO_PKG_VERSION"))), "{report}");
+    for section in [
+        "Session:",
+        "Desktop:",
+        "Distro:",
+        "Drawing:",
+        "Monitors:",
+        "Screenshot, tried in this order:",
+        "Recording, tried in this order:",
+        "Tools:",
+    ] {
+        assert!(report.contains(section), "{section} is missing: {report}");
+    }
+}
+
+#[test]
+fn listing_windows_works_without_a_display() {
+    // No desktop, and no session bus to find one through, whatever machine this runs on.
+    let empty = tempfile::tempdir().unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_queijo"))
+        .arg("--list-windows")
+        .env("XDG_CONFIG_HOME", empty.path())
+        .env("XDG_RUNTIME_DIR", empty.path())
+        .env("QUEIJO_NO_NOTIFY", "1")
+        .env_remove("DBUS_SESSION_BUS_ADDRESS")
+        .env_remove("XDG_CURRENT_DESKTOP")
+        .env_remove("XDG_SESSION_DESKTOP")
+        .env_remove("DESKTOP_SESSION")
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("no window list"), "{}", stdout(&out));
 }
 
 #[test]

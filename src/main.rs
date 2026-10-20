@@ -2,16 +2,24 @@ mod app;
 mod capture;
 mod cli;
 mod config;
+mod desktop;
+mod doctor;
 mod gif;
 mod i18n;
 mod icon;
+mod kwin;
 mod monitors;
 mod output;
 mod paint;
+mod portal;
 mod record;
 mod settings;
 mod shell_ext;
 mod shortcut;
+#[cfg(test)]
+mod testutil;
+mod windows;
+mod x11;
 
 use std::io::Write;
 use std::os::linux::net::SocketAddrExt;
@@ -36,11 +44,19 @@ fn main() {
         return;
     }
 
+    if args.doctor {
+        doctor::run();
+        return;
+    }
+
     output::set_notifications(cfg.notifications);
     if let Some(area) = &args.record {
         record_area(area, &cfg);
     }
-    if monitors::is_wayland() && std::env::var_os("LIBGL_ALWAYS_SOFTWARE").is_none() {
+    let software_gl = std::env::var("QUEIJO_SOFTWARE_GL").ok();
+    if desktop::wants_software_gl(desktop::Env::current(), software_gl.as_deref())
+        && std::env::var_os("LIBGL_ALWAYS_SOFTWARE").is_none()
+    {
         // Mutter (42) scans a fullscreen GPU buffer straight out to the monitor,
         // ignoring its alpha, so our see-through windows would show up black.
         // Software rendering hands it shared-memory buffers, which it always
@@ -68,6 +84,30 @@ fn main() {
     if args.list_monitors {
         for m in &monitors {
             println!("{}: {}  {}x{}+{}+{}", m.index, m.label(), m.width, m.height, m.x, m.y);
+        }
+        return;
+    }
+
+    if args.enable_extension {
+        match shell_ext::enable() {
+            Ok(shell_ext::Enabled::Now(uuid)) => println!("Enabled {uuid}. Log out and back in to load it."),
+            Ok(shell_ext::Enabled::AlreadyOn(uuid)) => println!("{uuid} is already enabled."),
+            Err(e) => fail(&e),
+        }
+        return;
+    }
+
+    if args.list_windows {
+        match windows::find(desktop::Env::current()) {
+            Some((source, list)) => {
+                println!("{} ({} windows, topmost first)", source.name(), list.len());
+                for w in list {
+                    let [x, y, width, height] = w.frame;
+                    let mark = if w.focused { "*" } else { " " };
+                    println!("{mark} {width}x{height}+{x}+{y}  {}  {}", w.app, w.title);
+                }
+            }
+            None => println!("no window list: window mode offers only the focused window"),
         }
         return;
     }
@@ -105,12 +145,10 @@ fn main() {
         return;
     }
 
-    // With the Queijo Shell extension we can offer every window; otherwise only
-    // the focused one, found by matching its picture on the screen.
-    let extension = zbus::blocking::Connection::session()
-        .ok()
-        .and_then(|conn| shell_ext::list_windows(&conn).map(|list| (conn, list)));
-    let shots_job = extension.map(|(conn, list)| std::thread::spawn(move || shell_ext::capture_all(&conn, list)));
+    // If the desktop can list its windows we offer every one; otherwise only the
+    // focused one, found by matching its picture on the screen.
+    let shots_job =
+        windows::find(desktop::Env::current()).map(|(source, list)| std::thread::spawn(move || source.shots(list)));
     let window_taken = Arc::new(AtomicBool::new(shots_job.is_some()));
 
     // The screen is captured while our windows start up. They stay fully
@@ -127,6 +165,9 @@ fn main() {
         }
     };
 
+    // Without a compositor our windows can't be see-through, so they show a
+    // still picture of the screen instead, and it must be taken before they exist.
+    let frozen = !desktop::Env::current().compositing;
     let (capture_job, desktop_rect) = if monitors.is_empty() {
         // Nothing to size the windows by but the picture itself.
         let job = start_capture(Vec::new());
@@ -152,13 +193,14 @@ fn main() {
             let pos = pick_monitor(&monitors, args.monitor.as_deref());
             monitors = vec![monitors.swap_remove(pos)];
         }
-        (start_capture(monitors.clone()), rect)
+        let job = start_capture(monitors.clone());
+        (if frozen { finished(job) } else { job }, rect)
     };
 
     let wayland = monitors::is_wayland();
     let screens: Vec<app::Screen> = monitors
         .into_iter()
-        .map(|monitor| app::Screen::new(viewport(&monitor, wayland), monitor, image::RgbaImage::new(0, 0)))
+        .map(|monitor| app::Screen::new(viewport(&monitor, wayland, !frozen), monitor, image::RgbaImage::new(0, 0)))
         .collect();
 
     let options = eframe::NativeOptions { viewport: screens[0].viewport.clone(), ..Default::default() };
@@ -173,6 +215,7 @@ fn main() {
                 (capture_job, desktop_rect),
                 window_taken,
                 shots_job,
+                frozen,
             ))))
         }),
     );
@@ -195,24 +238,35 @@ fn pick_monitor(monitors: &[monitors::Monitor], wanted: Option<&str>) -> usize {
 /// monitor, where the focused window is, and the job that grabs the desktop
 /// again with the mouse pointer drawn in (see `QueijoApp::root_frame`).
 fn prepare(shot: capture::Capture, all: &[monitors::Monitor], shown: &[monitors::Monitor]) -> app::Captured {
-    let capture::Capture { desktop, shell, window } = shot;
+    let capture::Capture { desktop, shell, window, cursor } = shot;
     let window = window.and_then(|w| capture::locate_window(&desktop, &w, all));
     let pieces = capture::split(&desktop, all);
     let images = shown
         .iter()
         .map(|m| all.iter().position(|a| a.index == m.index).map(|i| pieces[i].clone()).unwrap_or_default())
         .collect();
+    let desktop = Arc::new(desktop);
     let (dimensions, all, shown) = (desktop.dimensions(), all.to_vec(), shown.to_vec());
-    let pointer_job = shell.map(|shell| -> app::PointerJob {
-        Box::new(move |grabbed| match shell.with_pointer(grabbed) {
+    let pointer_job = match (shell, cursor) {
+        (Some(shell), _) => Some(Box::new(move |grabbed: &AtomicBool| match shell.with_pointer(grabbed) {
             Some(img) if img.dimensions() == dimensions => {
                 let pieces = capture::split(&img, &all);
                 shown.iter().map(|m| all.iter().position(|a| a.index == m.index).map(|i| pieces[i].clone())).collect()
             }
             _ => vec![None; shown.len()],
-        })
-    });
-    app::Captured { desktop: Arc::new(desktop), images, window, pointer_job }
+        }) as app::PointerJob),
+        // No Shell to draw the pointer in: draw the one we were told about on a copy.
+        (None, Some(cursor)) => {
+            let desktop = desktop.clone();
+            Some(Box::new(move |grabbed: &AtomicBool| {
+                grabbed.store(true, std::sync::atomic::Ordering::Release);
+                let pieces = capture::split(&x11::with_cursor(&desktop, &cursor), &all);
+                shown.iter().map(|m| all.iter().position(|a| a.index == m.index).map(|i| pieces[i].clone())).collect()
+            }) as app::PointerJob)
+        }
+        (None, None) => None,
+    };
+    app::Captured { desktop, images, window, pointer_job }
 }
 
 /// `queijo --record x,y,w,h,pointer`, started by the editor: records until
@@ -234,7 +288,8 @@ fn record_area(area: &str, cfg: &config::Config) -> ! {
     // Give the compositor a moment to take the editor off screen.
     std::thread::sleep(Duration::from_millis(120));
     match record::run(req, &listener, cfg) {
-        Ok(path) if req.gif => {
+        Ok(None) => std::process::exit(0),
+        Ok(Some(path)) if req.gif => {
             let copied = std::fs::read(&path).is_ok_and(|data| output::copy_data("image/gif", &data).is_ok());
             let mb = std::fs::metadata(&path).map(|m| m.len() as f64 / 1e6).unwrap_or(0.0);
             let mut detail = format!("{} · {mb:.1} MB", output::tilde(&path));
@@ -245,7 +300,7 @@ fn record_area(area: &str, cfg: &config::Config) -> ! {
             println!("{}", path.display());
             std::process::exit(0);
         }
-        Ok(path) => {
+        Ok(Some(path)) => {
             output::notify(i18n::t("notify.screencast_saved"), &output::tilde(&path), None);
             println!("{}", path.display());
             std::process::exit(0);
@@ -254,7 +309,14 @@ fn record_area(area: &str, cfg: &config::Config) -> ! {
     }
 }
 
-fn viewport(monitor: &monitors::Monitor, wayland: bool) -> egui::ViewportBuilder {
+/// Waits for the capture and hands its result on as a job that is already done.
+fn finished(job: app::CaptureJob) -> app::CaptureJob {
+    let captured = job.join().unwrap_or_else(|_| Err("capture panicked".into()));
+    let captured = captured.unwrap_or_else(|e| fail(&i18n::tf("error.capture", &[("error", &e)])));
+    std::thread::spawn(move || Ok(captured))
+}
+
+fn viewport(monitor: &monitors::Monitor, wayland: bool, transparent: bool) -> egui::ViewportBuilder {
     let builder = egui::ViewportBuilder::default()
         .with_title("Queijo")
         .with_app_id("queijo")
@@ -263,7 +325,7 @@ fn viewport(monitor: &monitors::Monitor, wayland: bool) -> egui::ViewportBuilder
         .with_taskbar(false)
         .with_always_on_top()
         .with_active(true)
-        .with_transparent(true)
+        .with_transparent(transparent)
         .with_inner_size([monitor.width as f32, monitor.height as f32]);
     if wayland {
         // Wayland hides absolute positions, so target the output directly.

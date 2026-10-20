@@ -79,6 +79,9 @@ pub struct Config {
     pub gif_fps: u32,
     /// Wider GIFs are scaled down (0 = keep the recorded size).
     pub gif_max_width: u32,
+    /// What the desktop's screen-casting portal gave back to pick the same screen
+    /// again without asking (empty until it has been used).
+    pub screencast_token: String,
 
     /// Keep the last colour and tool sizes for next time.
     pub remember_tools: bool,
@@ -105,6 +108,7 @@ impl Default for Config {
             video_fps: 30,
             gif_fps: 25,
             gif_max_width: 0,
+            screencast_token: String::new(),
             remember_tools: true,
             color: [255, 59, 48],
             sizes: Vec::new(),

@@ -40,3 +40,110 @@ for language in en pt-BR; do
     fi
     echo "ok ($language)"
 done
+
+# Record a few seconds the way the editor does (a separate process), stop it the way
+# the shortcut does, and look at the video. Needs ffmpeg with x11grab, and ffprobe.
+# QUEIJO_REQUIRE_RECORDING=1 makes a missing tool a failure (CI does).
+if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
+    mkdir -p "$work/videos"
+    printf '[videos]\nfolder = "%s"\nname = "clip"\n' "$work/videos" > "$XDG_CONFIG_HOME/queijo/config.toml"
+    "$bin" --record 0,0,320,240,0,0 > "$work/record.log" 2>&1 &
+    recorder=$!
+    sleep 4
+    "$bin" --stop
+    if ! wait "$recorder"; then
+        echo "FAIL (recording): the recorder failed"
+        cat "$work/record.log"
+        exit 1
+    fi
+    video=""
+    for video in "$work"/videos/*.webm; do break; done
+    shape=$(ffprobe -v error -show_entries stream=width,height -of csv=p=0 "$video" 2>/dev/null | head -1)
+    if [ "$shape" != "320,240" ]; then
+        echo "FAIL (recording): the video is '$shape'"
+        cat "$work/record.log"
+        exit 1
+    fi
+    echo "ok (recording: $shape)"
+elif [ -n "${QUEIJO_REQUIRE_RECORDING:-}" ]; then
+    echo "FAIL: ffmpeg and ffprobe are needed to check recording"
+    exit 1
+else
+    echo "skipping the recording check: ffmpeg or ffprobe is missing"
+fi
+
+# Window mode asks the window manager for the windows. Start a real one (openbox) with
+# two windows and see that Queijo lists them, topmost and focused first, with the manager's
+# frames around them. Needs openbox and xmessage.
+# QUEIJO_REQUIRE_WM=1 makes a missing tool a failure (CI does).
+if command -v openbox >/dev/null 2>&1 && command -v xmessage >/dev/null 2>&1; then
+    openbox > "$work/openbox.log" 2>&1 &
+    wm=$!
+    sleep 2
+    xmessage -geometry 300x120+100+150 -title "First window" hello &
+    first=$!
+    sleep 1
+    xmessage -geometry 400x140+400+300 -title "Second window" world &
+    second=$!
+    sleep 2
+    listing=$("$bin" --list-windows)
+    kill "$first" "$second" "$wm" 2>/dev/null || true
+    wait "$first" "$second" "$wm" 2>/dev/null || true
+    echo "$listing"
+    case "$listing" in
+        *"the X11 window manager (2 windows, topmost first)"*"* "*"+400+300  Xmessage  Second window"*"+100+150  Xmessage  First window"*) ;;
+        *) echo "FAIL (window list): not the two windows, topmost first"; exit 1 ;;
+    esac
+    echo "ok (window list)"
+elif [ -n "${QUEIJO_REQUIRE_WM:-}" ]; then
+    echo "FAIL: openbox and xmessage are needed to check the window list"
+    exit 1
+else
+    echo "skipping the window list check: openbox or xmessage is missing"
+fi
+
+# The editor on a screen with no compositor (this virtual one has none) can't be
+# see-through, so it must show a still picture of the screen, dimmed, and not black.
+# Needs ImageMagick (to paint and to look).
+# Set QUEIJO_REQUIRE_FROZEN=1 to make a missing tool a failure (CI does).
+if ! command -v display >/dev/null 2>&1 || ! command -v import >/dev/null 2>&1; then
+    if [ -n "${QUEIJO_REQUIRE_FROZEN:-}" ]; then
+        echo "FAIL: ImageMagick is needed for the editor check"
+        exit 1
+    fi
+    echo "skipping the editor check: ImageMagick is missing"
+    exit 0
+fi
+printf 'language = "en"\n' > "$XDG_CONFIG_HOME/queijo/config.toml"
+display -backdrop -background '#ff0000' xc:'#ff0000' &
+backdrop=$!
+sleep 1
+"$bin" > "$work/editor.log" 2>&1 &
+pid=$!
+red=0
+for _ in $(seq 1 30); do
+    sleep 1
+    if ! kill -0 "$pid" 2>/dev/null; then
+        echo "FAIL (editor): it exited early"
+        cat "$work/editor.log"
+        exit 1
+    fi
+    red=$(import -window root png:- | convert png:- -format '%[fx:mean.r]' info:)
+    # Red dimmed to about half; a black screen is 0, an undimmed one is 1.
+    if [ "$(echo "$red > 0.3 && $red < 0.7" | bc -l)" = 1 ]; then
+        break
+    fi
+done
+kill "$pid" "$backdrop"
+wait "$pid" 2>/dev/null || true
+if [ "$(echo "$red > 0.3 && $red < 0.7" | bc -l)" != 1 ]; then
+    echo "FAIL (editor): the screen is not the dimmed picture (red is $red)"
+    cat "$work/editor.log"
+    exit 1
+fi
+if grep -qi "panicked" "$work/editor.log"; then
+    echo "FAIL (editor): panic"
+    cat "$work/editor.log"
+    exit 1
+fi
+echo "ok (editor without a compositor: red $red)"

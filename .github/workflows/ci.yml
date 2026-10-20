@@ -35,7 +35,8 @@ jobs:
         # ffmpeg and the GNOME schemas let the tests that use them run for real.
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg gifsicle gnome-settings-daemon-common gnome-shell-common libglib2.0-bin
+          sudo apt-get install -y dbus xvfb ffmpeg gifsicle gstreamer1.0-tools gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good xfconf gnome-settings-daemon-common gnome-shell-common libglib2.0-bin
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -49,6 +50,10 @@ jobs:
         env:
           QUEIJO_REQUIRE_FFMPEG: "1"
           QUEIJO_REQUIRE_GSETTINGS: "1"
+          QUEIJO_REQUIRE_DBUS: "1"
+          QUEIJO_REQUIRE_XVFB: "1"
+          QUEIJO_REQUIRE_GSTREAMER: "1"
+          QUEIJO_REQUIRE_XFCONF: "1"
         run: cargo test --locked
 
   files:
@@ -60,22 +65,33 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y desktop-file-utils shellcheck
-      - name: GNOME Shell extension
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: GNOME Shell extensions
         run: |
-          ext=gnome-extension/queijo@queijo.app
-          node --check "$ext/extension.js"
-          python3 - "$ext" <<'PY'
-          import json, os, sys
-          path = sys.argv[1]
-          meta = json.load(open(os.path.join(path, "metadata.json")))
-          assert meta["uuid"] == os.path.basename(path), "the folder name must be the extension's uuid"
-          assert "42" in meta["shell-version"], "GNOME 42 is the validated version"
-          print("extension metadata ok:", meta["uuid"])
+          # Two of them: GNOME 45 changed how extensions are written.
+          node --check gnome-extension/queijo@queijo.app/extension.js
+          # The newer one is an ES module; Node only treats it as one under that name.
+          cp gnome-extension/esm/queijo-gnome45@queijo.app/extension.js "$RUNNER_TEMP/extension.mjs"
+          node --check "$RUNNER_TEMP/extension.mjs"
+          python3 - <<'PY'
+          import json, os
+          for path, versions in [
+              ("gnome-extension/queijo@queijo.app", {"42", "43", "44"}),
+              ("gnome-extension/esm/queijo-gnome45@queijo.app", {"45", "46", "47", "48", "49"}),
+          ]:
+              meta = json.load(open(os.path.join(path, "metadata.json")))
+              assert meta["uuid"] == os.path.basename(path), "the folder name must be the extension's uuid"
+              assert set(meta["shell-version"]) <= versions, f"{path}: only {sorted(versions)} are what it was written for"
+              print("extension metadata ok:", meta["uuid"], meta["shell-version"])
           PY
+      - name: The newer extension, run with stand-ins for GNOME's modules
+        run: node tests/extension/run.mjs "gnome-extension/esm/queijo-gnome45@queijo.app/extension.js"
       - name: Launchers
         run: desktop-file-validate packaging/*.desktop
       - name: Shell scripts
-        run: shellcheck scripts/*.sh packaging/install.sh gnome-extension/install.sh
+        run: shellcheck scripts/*.sh packaging/install.sh packaging/check-install.sh gnome-extension/install.sh
       - name: The changelog has an entry for this version
         run: |
           version=$(scripts/version.sh)
@@ -91,14 +107,38 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 \
-            imagemagick bc x11-xserver-utils
+            imagemagick bc x11-xserver-utils ffmpeg openbox x11-utils
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --locked --release
-      - name: Settings window, in English and Portuguese
+      - name: Settings window, and the editor without a compositor
+        env:
+          QUEIJO_REQUIRE_FROZEN: "1"
+          QUEIJO_REQUIRE_RECORDING: "1"
+          QUEIJO_REQUIRE_WM: "1"
         run: xvfb-run -a -s "-screen 0 1280x800x24" scripts/smoke-test.sh target/release/queijo
+
+  wlroots:
+    name: Screenshot and editor (headless Sway)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sway swaybg grim wf-recorder ffmpeg imagemagick bc libgl1-mesa-dri libegl1 libwayland-egl1 \
+            libxkbcommon0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked --release
+      - name: Queijo on a wlroots compositor
+        env:
+          QUEIJO_REQUIRE_RECORDING: "1"
+        run: scripts/wlroots-test.sh target/release/queijo
 
   package:
     name: Build the packages
@@ -108,15 +148,40 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y zip
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
-      - run: cargo install cargo-deb --locked
+      - uses: ./.github/actions/packaging-tools
       - run: scripts/build-packages.sh
       - uses: actions/upload-artifact@v4
         with:
           name: queijo-packages
           path: dist/
+          include-hidden-files: true # the .SRCINFO
           retention-days: 14
+
+  distros:
+    name: Install on ${{ matrix.image }}
+    needs: package
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each one is installed the way its users do (apt, dnf, zypper, makepkg) and has to run.
+        # rockylinux:8 has glibc 2.28, the oldest the release promises.
+        image:
+          - debian:12
+          - ubuntu:22.04
+          - ubuntu:24.04
+          - fedora:latest
+          - rockylinux:8
+          - opensuse/tumbleweed
+          - archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: queijo-packages
+          path: dist
+      - run: scripts/distro-test.sh ${{ matrix.image }}

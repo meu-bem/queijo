@@ -15,7 +15,7 @@ use crate::monitors::Monitor;
 use crate::output;
 use crate::paint::{self, Annotation, Icon, Tool, ACCENT, PALETTE, TEXT, TEXT_DIM};
 use crate::record;
-use crate::shell_ext::WindowShot;
+use crate::windows::{self, WindowShot};
 
 const BTN: f32 = 36.0;
 const PAD: f32 = 5.0;
@@ -421,6 +421,9 @@ pub struct QueijoApp {
     /// Empty until `capture_job` is done.
     desktop: Arc<RgbaImage>,
     capture_job: Option<CaptureJob>,
+    /// Without a compositor: the windows are opaque and show the captured
+    /// frame, dimmed, instead of the live screen.
+    frozen: bool,
     desktop_rect: Rect,
     /// The part of the desktop our windows cover.
     bounds: Rect,
@@ -502,6 +505,7 @@ impl QueijoApp {
         (capture_job, desktop_rect): (CaptureJob, Rect),
         window_taken: Arc<AtomicBool>,
         shots_job: Option<JoinHandle<Vec<WindowShot>>>,
+        frozen: bool,
     ) -> Self {
         let bounds = screens.iter().map(Screen::global).reduce(|a, b| a.union(b)).unwrap_or(desktop_rect);
         let stop_key = Arc::new(Mutex::new(None));
@@ -511,6 +515,7 @@ impl QueijoApp {
             screens,
             desktop: Arc::new(RgbaImage::new(0, 0)),
             capture_job: Some(capture_job),
+            frozen,
             desktop_rect,
             bounds,
             selection: None,
@@ -786,7 +791,12 @@ impl QueijoApp {
     }
 
     fn countdown_steps(&self) -> u32 {
-        self.cfg.countdown.min(10)
+        // When the desktop asks which screen to record, its dialog comes next: no countdown before it.
+        if record::asks_first() {
+            0
+        } else {
+            self.cfg.countdown.min(10)
+        }
     }
 
     fn tick_countdown(&mut self, ctx: &egui::Context, now: f64) {
@@ -1116,21 +1126,24 @@ impl QueijoApp {
         // The live screen shows through; only the readback for an export (which
         // needs real pixels under the drawings) and picked windows, which may
         // have been covered, show the captured frame, and only inside the selection.
+        // Without a compositor there is no live screen to show through, so the
+        // captured frame fills the window.
         let painter = ui.painter().clone();
         let sel = self.selection.map(|s| s.translate(offset));
         let exporting = self.export.as_ref().is_some_and(|e| e.involved.contains(&idx));
-        if let Some(s) = sel {
-            let frozen: Vec<Rect> = if exporting {
-                vec![s]
-            } else {
+        let frozen: Vec<Rect> = match sel {
+            _ if self.frozen => vec![rect],
+            Some(s) if exporting => vec![s],
+            Some(s) => {
                 self.front.iter().map(|f| f.translate(offset).intersect(s)).filter(|f| f.is_positive()).collect()
-            };
-            if !frozen.is_empty() {
-                let texture = self.frozen_texture(&ctx, idx);
-                let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
-                for r in frozen {
-                    painter.with_clip_rect(r).image(texture, rect, uv, Color32::WHITE);
-                }
+            }
+            None => Vec::new(),
+        };
+        if !frozen.is_empty() {
+            let texture = self.frozen_texture(&ctx, idx);
+            let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
+            for r in frozen {
+                painter.with_clip_rect(r).image(texture, rect, uv, Color32::WHITE);
             }
         }
         if !self.video() {
@@ -2449,7 +2462,9 @@ impl eframe::App for Shared {
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         // The windows only dim the live screen; nothing is opaque but our own UI.
-        [0.0, 0.0, 0.0, 0.0]
+        // Without a compositor they are opaque, and black is what is behind the picture.
+        let opaque = lock(&self.0).frozen;
+        [0.0, 0.0, 0.0, if opaque { 1.0 } else { 0.0 }]
     }
 }
 
@@ -2498,6 +2513,7 @@ impl QueijoApp {
         }
         if self.shots_job.as_ref().is_some_and(|j| j.is_finished()) {
             self.shots = self.shots_job.take().unwrap().join().unwrap_or_default();
+            self.fill_thumbs();
             arrived = true;
         } else if self.shots_job.is_some() {
             ctx.request_repaint_after(Duration::from_millis(30));
@@ -2515,12 +2531,26 @@ impl QueijoApp {
         }
     }
 
+    /// A window the desktop gave no picture of gets its preview cut from the screen's picture.
+    /// Whichever of the two arrives second does it.
+    fn fill_thumbs(&mut self) {
+        if self.desktop.width() == 0 {
+            return;
+        }
+        let (origin, width) =
+            ((self.desktop_rect.min.x as i32, self.desktop_rect.min.y as i32), self.desktop_rect.width());
+        for shot in self.shots.iter_mut().filter(|s| s.thumb.is_none() && s.image.is_none()) {
+            shot.thumb = windows::thumb_from_desktop(&self.desktop, origin, width, shot.frame);
+        }
+    }
+
     fn set_captured(&mut self, captured: Captured) {
         for (screen, image) in self.screens.iter_mut().zip(captured.images) {
             screen.image = image;
             screen.texture = None;
         }
         self.desktop = captured.desktop;
+        self.fill_thumbs();
         self.window =
             captured.window.map(|[x, y, w, h]| Rect::from_min_size(pos2(x as f32, y as f32), vec2(w as f32, h as f32)));
         self.pointer_job = captured.pointer_job;

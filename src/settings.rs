@@ -313,7 +313,53 @@ impl SettingsApp {
         }
     }
 
+    /// For a desktop whose shortcuts Queijo can't write: the lines to add, with a button to copy them.
+    fn manual_shortcuts(&mut self, ui: &mut Ui, kind: shortcut::manual::Kind, now: f64) {
+        use shortcut::manual::Kind;
+        let intro = match kind {
+            Kind::Sway => t("settings.manual_sway"),
+            Kind::Hyprland => t("settings.manual_hyprland"),
+            Kind::I3 => t("settings.manual_i3"),
+            Kind::Kde => t("settings.manual_kde"),
+            Kind::Other => t("settings.manual_other"),
+        };
+        hint(ui, intro);
+        let exe = std::env::current_exe()
+            .ok()
+            .filter(|p| p.is_absolute() && !p.to_string_lossy().contains("target/"))
+            .map_or_else(|| "queijo".to_string(), |p| p.to_string_lossy().into_owned());
+        let lines: Vec<String> = shortcut::manual::lines(kind, &exe).into_iter().map(|(_, l)| l).collect();
+        card(ui, |ui| {
+            for (n, (action, line)) in shortcut::manual::lines(kind, &exe).into_iter().enumerate() {
+                if n > 0 {
+                    sep(ui);
+                }
+                ui.spacing_mut().item_spacing.y = 2.0;
+                ui.label(RichText::new(action.title()).size(14.0).color(TEXT));
+                ui.add_space(4.0);
+                ui.label(RichText::new(line).monospace().size(13.0).color(TEXT_DIM));
+                ui.spacing_mut().item_spacing.y = 10.0;
+                ui.add_space(4.0);
+            }
+        });
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            if ui.button(t("settings.copy_lines")).clicked() {
+                let text = lines.join("\n") + "\n";
+                self.status = Some(match crate::output::copy_data("text/plain", text.as_bytes()) {
+                    Ok(()) => (t("settings.copied").into(), now, true),
+                    Err(e) => (tf("settings.copy_failed", &[("error", &e)]), now, false),
+                });
+            }
+            ui.label(RichText::new(t("settings.manual_note")).size(12.0).color(TEXT_DIM));
+        });
+    }
+
     fn shortcuts(&mut self, ui: &mut Ui, now: f64) {
+        if let shortcut::Mechanism::Manual(kind) = shortcut::mechanism_here() {
+            self.manual_shortcuts(ui, kind, now);
+            return;
+        }
         hint(ui, t("settings.shortcuts_hint"));
         card(ui, |ui| {
             for (n, action) in Action::ALL.into_iter().enumerate() {
@@ -873,15 +919,33 @@ fn keycap_slot(ui: &mut Ui, key: Option<&str>, capturing: bool, now: f64) -> egu
     resp
 }
 
+/// The portal's file chooser, then `zenity`, then `kdialog`; `None` if the user
+/// cancels or nothing is available (the path can still be typed).
 fn pick_folder(start: &std::path::Path) -> Option<String> {
-    let out = std::process::Command::new("zenity")
-        .args(["--file-selection", "--directory"])
-        .arg(format!("--title={}", t("settings.choose_folder")))
-        .arg(format!("--filename={}/", start.display()))
-        .output()
-        .ok()?;
-    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (out.status.success() && !path.is_empty()).then_some(path)
+    match crate::portal::choose_folder(t("settings.choose_folder"), start) {
+        Ok(choice) => return choice,
+        Err(e) => eprintln!("queijo: no folder chooser from the portal ({e})"),
+    }
+    let title = t("settings.choose_folder");
+    let dialogs: [(&str, Vec<String>); 2] = [
+        (
+            "zenity",
+            vec![
+                "--file-selection".into(),
+                "--directory".into(),
+                format!("--title={title}"),
+                format!("--filename={}/", start.display()),
+            ],
+        ),
+        ("kdialog", vec!["--getexistingdirectory".into(), start.display().to_string(), "--title".into(), title.into()]),
+    ];
+    for (program, args) in dialogs {
+        // A dialog that runs and returns nothing was cancelled; one that can't start isn't there.
+        let Ok(out) = std::process::Command::new(program).args(args).output() else { continue };
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        return (out.status.success() && !path.is_empty()).then_some(path);
+    }
+    None
 }
 
 /// egui key → GNOME keysym name.

@@ -37,26 +37,57 @@ More languages are planned; the way to add one is described in
 
 ## Compatibility
 
-Queijo is built for **GNOME**. It has only been tested on **Ubuntu 22.04 with
-GNOME 42 on Wayland**, which is the environment the packages target. Other GNOME
-versions, X11 sessions and other desktops are untested. Outside GNOME there is no
-screen recording, and screenshots only work through the fallbacks (`gnome-screenshot`
-or `grim`).
+Queijo is built for **GNOME**. It has only been tested on a real **Ubuntu 22.04 with
+GNOME 42 on Wayland**, which is the environment the packages target.
+
+It can also take screenshots and record on any X11 desktop, on KDE Plasma, on Sway and
+Hyprland, and through the desktop portal. Those ways were tried only on a virtual X11
+screen and a headless Sway, or against stand-ins, never on a real machine
+([docs/TESTING-DESKTOPS.md](docs/TESTING-DESKTOPS.md) says what), so treat them as
+experimental. Recording through the portal needs `gst-launch-1.0` with GStreamer's
+PipeWire plugin, and Sway and Hyprland need `wf-recorder`.
+
+`queijo --doctor` prints what it detected on your system and what it will use; please
+include its output when you report a problem.
 
 ## Install
 
-Download the files from the **Releases** page.
+Download the files from the **Releases** page. They are built for x86_64 and aarch64 against
+glibc 2.28, so they run on distributions as old as Debian 10, RHEL 8 and its clones, and Ubuntu
+20.04. Each package was installed and run (`queijo --doctor`) on Debian 12, Ubuntu 22.04 and
+24.04, Fedora, Rocky Linux 8, openSUSE Tumbleweed and Arch Linux, on x86_64. The aarch64 ones
+are built the same way but have never been run.
 
-### Ubuntu 22.04 (`.deb`)
+Whatever you install, `queijo --doctor` says what Queijo found on your system, what it will use
+and what is missing, with the command to install it for your distribution.
+[packaging/dependencies.md](packaging/dependencies.md) lists the package names for every one.
+
+### Ubuntu, Debian and relatives (`.deb`)
 
 ```sh
 sudo apt install ./queijo_<version>-1_amd64.deb
 ```
 
-`apt` also installs what Queijo needs (`ffmpeg`, `wl-clipboard`, `zenity` and a few
-libraries).
+`apt` also installs what Queijo needs (`ffmpeg`, a clipboard tool and a few libraries).
 
-### Any other install (`.tar.gz`)
+### Fedora, openSUSE, RHEL and relatives (`.rpm`)
+
+```sh
+sudo dnf install ./queijo-<version>-1.x86_64.rpm          # Fedora, RHEL, Rocky, Alma
+sudo zypper install --allow-unsigned-rpm ./queijo-<version>-1.x86_64.rpm   # openSUSE
+```
+
+`ffmpeg` and the clipboard tool are recommended, not required, because RHEL and its clones
+carry neither in their base repositories (they are in EPEL and RPM Fusion): install `ffmpeg`
+and `wl-clipboard` (Wayland) or `xclip` (X11) yourself there.
+
+### Arch Linux (AUR)
+
+Each release includes a `PKGBUILD` and `.SRCINFO` for the AUR package `queijo-bin`. It is
+not published to the AUR yet; until it is, build it yourself with `makepkg -si` in a folder
+with the `PKGBUILD`.
+
+### Any other distribution (`.tar.gz`)
 
 ```sh
 tar xzf queijo-<version>-x86_64-linux.tar.gz
@@ -66,23 +97,29 @@ sudo PREFIX=/usr/local ./install.sh   # for everyone
 ./install.sh --uninstall              # removes it again
 ```
 
-You need `ffmpeg`, `wl-clipboard` (Wayland), `libnotify-bin` and `zenity`
-installed yourself. `gifsicle` is optional and makes GIFs a little smaller.
+You need `ffmpeg` and a clipboard tool (`wl-clipboard` on Wayland, `xclip` on X11) installed
+yourself, and the libraries `queijo --doctor` lists. `gifsicle` makes GIFs a little smaller, and
+`zenity` (or `kdialog`) and `libnotify-bin` are only used when the desktop's own folder chooser
+and notifications are not there.
 
 ### GNOME Shell extension (optional)
 
 GNOME lets only the Shell see which windows exist, so a small extension provides
-the window picker and the top-bar recording indicator. The `.deb` and the `.tar.gz`
-include it; enable it and log out and back in (on Wayland the Shell only loads new
-extensions at login):
+the window picker and the top-bar recording indicator. Since GNOME 49 it also takes
+the screenshots, because the Shell no longer answers Queijo's own requests. There are
+two of them, because GNOME 45 changed how extensions are written: one for GNOME 42 to
+44 and one for 45 and later. The `.deb` and the `.tar.gz` include both; this turns on
+the one that fits your GNOME, and then you log out and back in (on Wayland the Shell
+only loads new extensions at login):
 
 ```sh
-gnome-extensions enable queijo@queijo.app
+queijo --enable-extension
 ```
 
-It is also released on its own as `queijo-gnome-extension-<version>.zip`
-(`gnome-extensions install <file>`). Without it, window mode captures the window
-that was active when Queijo opened, and recordings are stopped with the shortcut.
+They are also released on their own as `queijo-gnome-extension-<version>-gnome42.zip`
+and `-gnome45.zip` (`gnome-extensions install <file>`). Without one, window mode
+captures the window that was active when Queijo opened, and recordings are stopped with
+the shortcut.
 
 ## Use
 
@@ -138,7 +175,14 @@ queijo -d 3             # wait 3 seconds first
 queijo -o ~/Shots       # save screenshots there this time
 queijo --stop           # stop a recording
 queijo --settings       # open the settings
+queijo --list-windows   # the windows that window mode would offer
+queijo --enable-extension  # turn on the GNOME Shell extension that fits your GNOME
+queijo --doctor         # what Queijo found on your system, and what is missing
 ```
+
+If the editor's windows show up black or the dimming is missing, set
+`QUEIJO_SOFTWARE_GL=1` to draw with the CPU, or `QUEIJO_SOFTWARE_GL=0` to use the
+GPU (outside GNOME, the GPU is the default). Please tell us which desktop it was.
 
 ## Settings
 

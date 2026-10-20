@@ -45,6 +45,18 @@ pub struct Cli {
     /// Print the detected monitors and exit
     #[arg(long)]
     pub list_monitors: bool,
+
+    /// Print the windows window mode would offer and exit
+    #[arg(long)]
+    pub list_windows: bool,
+
+    /// Turn on the Queijo GNOME Shell extension that fits your GNOME, then exit
+    #[arg(long)]
+    pub enable_extension: bool,
+
+    /// Print what Queijo found on this system and what it is missing, then exit
+    #[arg(long)]
+    pub doctor: bool,
 }
 
 #[cfg(test)]
@@ -64,7 +76,15 @@ mod tests {
     #[test]
     fn no_arguments_means_the_editor_with_the_settings() {
         let cli = parse(&[]).unwrap();
-        assert!(!cli.quick && !cli.stop && !cli.settings && !cli.list_monitors);
+        assert!(
+            !cli.quick
+                && !cli.stop
+                && !cli.settings
+                && !cli.list_monitors
+                && !cli.list_windows
+                && !cli.doctor
+                && !cli.enable_extension
+        );
         assert!(cli.kind.is_none() && cli.area.is_none() && cli.monitor.is_none() && cli.record.is_none());
         assert_eq!(cli.delay, 0);
     }
@@ -82,6 +102,9 @@ mod tests {
         assert!(parse(&["--settings"]).unwrap().settings);
         assert!(parse(&["--stop"]).unwrap().stop);
         assert!(parse(&["--list-monitors"]).unwrap().list_monitors);
+        assert!(parse(&["--list-windows"]).unwrap().list_windows);
+        assert!(parse(&["--doctor"]).unwrap().doctor);
+        assert!(parse(&["--enable-extension"]).unwrap().enable_extension);
         assert_eq!(parse(&["--record", "1,2,3,4,0,1"]).unwrap().record.as_deref(), Some("1,2,3,4,0,1"));
     }
 
@@ -103,7 +126,18 @@ mod tests {
     fn the_internal_option_stays_out_of_the_help() {
         let help = Cli::command().render_long_help().to_string();
         assert!(!help.contains("--record"), "{help}");
-        for shown in ["--kind", "--area", "--monitor", "--settings", "--stop", "--list-monitors", "--quick"] {
+        for shown in [
+            "--kind",
+            "--area",
+            "--monitor",
+            "--settings",
+            "--stop",
+            "--list-monitors",
+            "--list-windows",
+            "--enable-extension",
+            "--doctor",
+            "--quick",
+        ] {
             assert!(help.contains(shown), "{shown} is documented");
         }
     }

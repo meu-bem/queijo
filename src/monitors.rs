@@ -25,7 +25,7 @@ impl Monitor {
 }
 
 pub fn is_wayland() -> bool {
-    std::env::var_os("WAYLAND_DISPLAY").is_some()
+    crate::desktop::Env::current().session == crate::desktop::Session::Wayland
 }
 
 pub fn detect() -> Vec<Monitor> {
@@ -36,7 +36,12 @@ pub fn detect() -> Vec<Monitor> {
             Err(e) => eprintln!("queijo: could not list Wayland outputs: {e}"),
         }
     }
-    xrandr()
+    x11()
+}
+
+/// Asks the X server (RandR 1.5), or `xrandr` if that doesn't work.
+fn x11() -> Vec<Monitor> {
+    crate::x11::monitors(None).filter(|m| !m.is_empty()).unwrap_or_else(xrandr)
 }
 
 /// Parses `xrandr --listmonitors`, e.g. ` 0: +*HDMI-1 2560/800x1080/340+0+0  HDMI-1`.
