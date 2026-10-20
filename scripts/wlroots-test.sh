@@ -2,7 +2,8 @@
 # Starts a headless Sway (a wlroots compositor with a red wallpaper) and checks that
 # Queijo finds its monitor, takes a screenshot of it with grim, and opens an editor that
 # shows a dimmed still picture (Sway can't show the live screen through a window).
-# Needs sway, swaybg, grim and ImageMagick.
+# Needs sway, swaybg, grim, ImageMagick, and for the recording wf-recorder and ffprobe
+# (QUEIJO_REQUIRE_RECORDING=1 makes those a requirement).
 #   scripts/wlroots-test.sh target/release/queijo
 set -eu
 bin="${1:?usage: wlroots-test.sh BINARY}"
@@ -84,4 +85,28 @@ if grep -qi "panicked" "$work/editor.log"; then
     cat "$work/editor.log"
     exit 1
 fi
-echo "ok (sway: screenshot and editor, red $level)"
+kill "$editor" 2>/dev/null || true
+editor=""
+
+# Record a few seconds the way the editor does (a separate process), stop it the way
+# the shortcut does, and look at the video. Needs wf-recorder and ffprobe.
+if command -v wf-recorder >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
+    mkdir -p "$work/videos"
+    printf '[videos]\nfolder = "%s"\nname = "clip"\n' "$work/videos" > "$XDG_CONFIG_HOME/queijo/config.toml"
+    "$bin" --record 0,0,640,360,0,0 > "$work/record.log" 2>&1 &
+    recorder=$!
+    sleep 4
+    "$bin" --stop
+    wait "$recorder" || { echo "FAIL: the recorder failed"; cat "$work/record.log"; exit 1; }
+    video=""
+    for video in "$work"/videos/*.webm; do break; done
+    shape=$(ffprobe -v error -show_entries stream=width,height -of csv=p=0 "$video" 2>/dev/null | head -1)
+    echo "video: $shape"
+    [ "$shape" = "640,360" ] || { echo "FAIL: the video is $shape"; cat "$work/record.log"; exit 1; }
+elif [ -n "${QUEIJO_REQUIRE_RECORDING:-}" ]; then
+    echo "FAIL: wf-recorder and ffprobe are needed to check recording"
+    exit 1
+else
+    echo "skipping the recording check: wf-recorder or ffprobe is missing"
+fi
+echo "ok (sway: screenshot, editor and recording, red $level)"

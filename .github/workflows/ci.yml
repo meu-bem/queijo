@@ -93,7 +93,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 \
-            imagemagick bc x11-xserver-utils
+            imagemagick bc x11-xserver-utils ffmpeg
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -102,6 +102,7 @@ jobs:
       - name: Settings window, and the editor without a compositor
         env:
           QUEIJO_REQUIRE_FROZEN: "1"
+          QUEIJO_REQUIRE_RECORDING: "1"
         run: xvfb-run -a -s "-screen 0 1280x800x24" scripts/smoke-test.sh target/release/queijo
 
   wlroots:
@@ -112,7 +113,7 @@ jobs:
       - name: System packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y sway swaybg grim imagemagick bc libgl1-mesa-dri libegl1 libwayland-egl1 \
+          sudo apt-get install -y sway swaybg grim wf-recorder ffmpeg imagemagick bc libgl1-mesa-dri libegl1 libwayland-egl1 \
             libxkbcommon0
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -120,6 +121,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --locked --release
       - name: Queijo on a wlroots compositor
+        env:
+          QUEIJO_REQUIRE_RECORDING: "1"
         run: scripts/wlroots-test.sh target/release/queijo
 
   package:

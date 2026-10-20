@@ -92,6 +92,7 @@ enum When {
     Wayland,
     X11,
     Kde,
+    Wlroots,
 }
 
 impl When {
@@ -101,6 +102,7 @@ impl When {
             When::Wayland => env.session == Session::Wayland,
             When::X11 => env.session == Session::X11,
             When::Kde => env.desktop == Desktop::Kde,
+            When::Wlroots => matches!(env.desktop, Desktop::Sway | Desktop::Hyprland),
         }
     }
 }
@@ -117,7 +119,7 @@ struct Tool {
 const TOOLS: &[Tool] = &[
     Tool {
         program: "ffmpeg",
-        purpose: "makes GIFs from recordings",
+        purpose: "recording on X11, and makes GIFs from recordings",
         when: When::Always,
         required: true,
         packages: ["ffmpeg", "ffmpeg-free", "ffmpeg", "ffmpeg", "ffmpeg"],
@@ -163,6 +165,13 @@ const TOOLS: &[Tool] = &[
         when: When::Always,
         required: false,
         packages: ["gnome-screenshot"; 5],
+    },
+    Tool {
+        program: "wf-recorder",
+        purpose: "screen recording on Sway and Hyprland",
+        when: When::Wlroots,
+        required: true,
+        packages: ["wf-recorder"; 5],
     },
     Tool {
         program: "spectacle",
@@ -224,6 +233,17 @@ fn backend_line(backend: Backend, env: &Env) -> String {
     format!("{} ({state})", backend.name())
 }
 
+fn recording_line(backend: crate::record::Backend, env: &Env) -> String {
+    use crate::record::Backend::*;
+    let state = match backend {
+        GnomeShell if env.session == Session::Headless => "no display",
+        GnomeShell => yes_no(bus_name_taken("org.gnome.Shell.Screencast")),
+        X11 => yes_no(Some(on_path("ffmpeg"))),
+        Wlr => yes_no(Some(on_path("wf-recorder"))),
+    };
+    format!("{} ({state})", backend.name())
+}
+
 /// The report, as text.
 fn report(env: &Env) -> String {
     let mut out = String::new();
@@ -276,13 +296,13 @@ fn report(env: &Env) -> String {
     }
 
     line(String::new());
+    line("Recording, tried in this order:".into());
+    for (i, backend) in crate::record::backends(env).iter().enumerate() {
+        line(format!("  {}. {}", i + 1, recording_line(*backend, env)));
+    }
+
+    line(String::new());
     line("Everything else:".into());
-    let recording = if env.desktop == Desktop::Gnome {
-        "GNOME Shell screencast".to_string()
-    } else {
-        "not available on this desktop yet".to_string()
-    };
-    line(format!("  Recording:        {recording}"));
     let picker = match env.session {
         Session::Headless => "no display".to_string(),
         _ => {

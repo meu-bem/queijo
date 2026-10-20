@@ -83,6 +83,7 @@ screencast_saved = "Gravação salva"
 [error]
 no_clipboard = "nenhuma ferramenta de área de transferência encontrada (instale o {package})"
 shell_refused = "O GNOME Shell recusou iniciar a gravação"
+record_tool_missing = "O {tool} é necessário para gravar a tela aqui (instale o {package})"
 no_ffmpeg = "ffmpeg: {error} (instale o ffmpeg)"
 open_settings = "Não foi possível abrir as configurações: {error}"
 capture = "Não foi possível capturar a tela: {error}"

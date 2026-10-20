@@ -41,6 +41,37 @@ for language in en pt-BR; do
     echo "ok ($language)"
 done
 
+# Record a few seconds the way the editor does (a separate process), stop it the way
+# the shortcut does, and look at the video. Needs ffmpeg with x11grab, and ffprobe.
+# QUEIJO_REQUIRE_RECORDING=1 makes a missing tool a failure (CI does).
+if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
+    mkdir -p "$work/videos"
+    printf '[videos]\nfolder = "%s"\nname = "clip"\n' "$work/videos" > "$XDG_CONFIG_HOME/queijo/config.toml"
+    "$bin" --record 0,0,320,240,0,0 > "$work/record.log" 2>&1 &
+    recorder=$!
+    sleep 4
+    "$bin" --stop
+    if ! wait "$recorder"; then
+        echo "FAIL (recording): the recorder failed"
+        cat "$work/record.log"
+        exit 1
+    fi
+    video=""
+    for video in "$work"/videos/*.webm; do break; done
+    shape=$(ffprobe -v error -show_entries stream=width,height -of csv=p=0 "$video" 2>/dev/null | head -1)
+    if [ "$shape" != "320,240" ]; then
+        echo "FAIL (recording): the video is '$shape'"
+        cat "$work/record.log"
+        exit 1
+    fi
+    echo "ok (recording: $shape)"
+elif [ -n "${QUEIJO_REQUIRE_RECORDING:-}" ]; then
+    echo "FAIL: ffmpeg and ffprobe are needed to check recording"
+    exit 1
+else
+    echo "skipping the recording check: ffmpeg or ffprobe is missing"
+fi
+
 # The editor on a screen with no compositor (this virtual one has none) can't be
 # see-through, so it must show a still picture of the screen, dimmed, and not black.
 # Needs ImageMagick (to paint and to look).

@@ -172,53 +172,9 @@ pub fn monitors(display: Option<&str>) -> Option<Vec<Monitor>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{BufRead, BufReader};
-    use std::process::{Child, Command, Stdio};
+    use crate::testutil::VirtualDisplay;
     use x11rb::protocol::xproto::{CreateWindowAux, WindowClass};
     use x11rb::COPY_DEPTH_FROM_PARENT;
-
-    /// An X server of its own. `None` without `Xvfb`; set QUEIJO_REQUIRE_XVFB=1 to make that a failure (CI does).
-    pub struct VirtualDisplay {
-        child: Child,
-        pub name: String,
-        /// Servers starting side by side can pick the same display number, so
-        /// the tests that use one take turns.
-        _turn: std::sync::MutexGuard<'static, ()>,
-    }
-
-    impl VirtualDisplay {
-        pub fn start() -> Option<Self> {
-            Self::start_sized("640x480x24")
-        }
-
-        pub fn start_sized(screen: &str) -> Option<Self> {
-            static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
-            let turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
-            let child = Command::new("Xvfb")
-                // -noreset: by default the server restarts when its last client leaves, and a
-                // connection made meanwhile is reset.
-                .args(["-displayfd", "1", "-noreset", "-screen", "0", screen, "-nolisten", "tcp"])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn();
-            let Ok(mut child) = child else {
-                assert!(std::env::var_os("QUEIJO_REQUIRE_XVFB").is_none(), "Xvfb is required here");
-                eprintln!("skipping: Xvfb is not installed");
-                return None;
-            };
-            let mut number = String::new();
-            BufReader::new(child.stdout.take().unwrap()).read_line(&mut number).unwrap();
-            assert!(!number.trim().is_empty(), "Xvfb did not start");
-            Some(VirtualDisplay { child, name: format!(":{}", number.trim()), _turn: turn })
-        }
-    }
-
-    impl Drop for VirtualDisplay {
-        fn drop(&mut self) {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
-    }
 
     #[test]
     fn sees_whether_a_compositor_owns_the_selection() {

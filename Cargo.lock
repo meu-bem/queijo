@@ -2226,6 +2226,7 @@ dependencies = [
  "clap",
  "eframe",
  "image",
+ "rustix 1.1.4",
  "serde",
  "tempfile",
  "toml",

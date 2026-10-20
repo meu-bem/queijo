@@ -28,6 +28,10 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- Screen recording (video and GIF) on X11 with any desktop, using `ffmpeg`, and on
+  Sway and Hyprland, using `wf-recorder`. The pointer option does not apply to
+  `wf-recorder`, which always draws it, and an old one (Ubuntu 22.04's) records at
+  the compositor's own rate.
 - On KDE Plasma with Wayland, screenshots come from KWin's own service, then from
   `spectacle`, then from the portal. KWin only answers programs that its launcher
   lists, so `queijo.desktop` now does; an install that puts that file only under

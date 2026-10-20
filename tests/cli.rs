@@ -72,9 +72,16 @@ fn the_doctor_reports_without_a_display() {
     assert!(out.status.success(), "{}", stderr(&out));
     let report = stdout(&out);
     assert!(report.starts_with(&format!("queijo {}\n", env!("CARGO_PKG_VERSION"))), "{report}");
-    for section in
-        ["Session:", "Desktop:", "Distro:", "Drawing:", "Monitors:", "Screenshot, tried in this order:", "Tools:"]
-    {
+    for section in [
+        "Session:",
+        "Desktop:",
+        "Distro:",
+        "Drawing:",
+        "Monitors:",
+        "Screenshot, tried in this order:",
+        "Recording, tried in this order:",
+        "Tools:",
+    ] {
         assert!(report.contains(section), "{section} is missing: {report}");
     }
 }

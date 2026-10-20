@@ -1,4 +1,7 @@
 mod gnome;
+mod process;
+mod wlr;
+mod x11grab;
 
 use std::io::Read;
 use std::os::unix::net::UnixListener;
@@ -9,7 +12,7 @@ use std::sync::mpsc;
 use chrono::Local;
 
 use crate::config::Config;
-use crate::desktop::Env;
+use crate::desktop::{Desktop, Env, Session as DesktopSession};
 
 /// Area to record, in logical desktop coordinates.
 #[derive(Clone, Copy, Debug)]
@@ -88,6 +91,8 @@ pub struct Job<'a> {
     /// The session bus, if there is one. The GNOME Shell stops recording when
     /// the connection that started it goes away, so this one lives to the end.
     pub conn: Option<&'a zbus::blocking::Connection>,
+    /// A backend whose recorder ends by itself says so here, which ends the wait.
+    pub ended: mpsc::Sender<()>,
 }
 
 /// A recording in progress.
@@ -100,25 +105,39 @@ pub trait Session {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Backend {
     GnomeShell,
+    /// ffmpeg's `x11grab`, for a real X11 session.
+    X11,
+    /// `wf-recorder`, for compositors with wlr-screencopy (Sway, Hyprland, ...).
+    Wlr,
 }
 
 impl Backend {
     pub fn name(self) -> &'static str {
         match self {
             Backend::GnomeShell => "GNOME Shell",
+            Backend::X11 => "ffmpeg (x11grab)",
+            Backend::Wlr => "wf-recorder",
         }
     }
 
     fn start(self, job: &Job) -> Result<Box<dyn Session>, String> {
         match self {
             Backend::GnomeShell => gnome::start(job),
+            Backend::X11 => x11grab::start(job),
+            Backend::Wlr => wlr::start(job),
         }
     }
 }
 
 /// The backends for this desktop, in the order they are tried.
-pub fn backends(_env: &Env) -> Vec<Backend> {
-    vec![Backend::GnomeShell]
+pub fn backends(env: &Env) -> Vec<Backend> {
+    use Backend::*;
+    match (env.session, &env.desktop) {
+        (DesktopSession::X11, Desktop::Gnome) => vec![GnomeShell, X11],
+        (DesktopSession::X11, _) => vec![X11],
+        (DesktopSession::Wayland, Desktop::Sway | Desktop::Hyprland) => vec![Wlr],
+        _ => vec![GnomeShell],
+    }
 }
 
 /// Starts the first backend that can.
@@ -183,6 +202,7 @@ pub fn run(req: Request, listener: &UnixListener, cfg: &Config) -> Result<PathBu
         fps,
         path,
         conn: conn.as_ref(),
+        ended: stop_tx,
     };
     let session = start_first(&backends(Env::current()), &job)?;
 
@@ -214,4 +234,41 @@ fn cache_dir() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into())).join(".cache"))
         .join("queijo")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn env(session: DesktopSession, desktop: Desktop) -> Env {
+        Env { session, desktop, compositing: true }
+    }
+
+    #[test]
+    fn the_gnome_shell_records_gnome_as_it_always_did() {
+        assert_eq!(backends(&env(DesktopSession::Wayland, Desktop::Gnome)), [Backend::GnomeShell]);
+        assert_eq!(backends(&env(DesktopSession::X11, Desktop::Gnome)), [Backend::GnomeShell, Backend::X11]);
+    }
+
+    #[test]
+    fn other_desktops_get_a_recorder_that_fits_their_session() {
+        assert_eq!(backends(&env(DesktopSession::X11, Desktop::Xfce)), [Backend::X11]);
+        assert_eq!(backends(&env(DesktopSession::X11, Desktop::Kde)), [Backend::X11]);
+        assert_eq!(backends(&env(DesktopSession::Wayland, Desktop::Sway)), [Backend::Wlr]);
+        assert_eq!(backends(&env(DesktopSession::Wayland, Desktop::Hyprland)), [Backend::Wlr]);
+    }
+
+    #[test]
+    fn the_area_survives_the_trip_to_the_recorder_process() {
+        let req = Request { x: -1280, y: 40, width: 641, height: 360, pointer: true, gif: true };
+        let back = Request::parse(&req.to_arg()).unwrap();
+        assert_eq!(
+            (back.x, back.y, back.width, back.height, back.pointer, back.gif),
+            (-1280, 40, 641, 360, true, true)
+        );
+        // The editor of an older version sent no `gif` field.
+        assert!(!Request::parse("0,0,10,10,1").unwrap().gif);
+        assert!(Request::parse("0,0,0,10,1").is_none(), "an empty area");
+        assert!(Request::parse("garbage").is_none());
+    }
 }
