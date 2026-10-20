@@ -6,6 +6,10 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Notifications are sent straight over D-Bus, so they work without
+  `notify-send`. It stays as a fallback and is now recommended, not required.
+
 ### Added
 - `queijo --doctor` prints the session, the desktop, the distribution, the
   monitors, what Queijo will use to take screenshots and which of the tools it

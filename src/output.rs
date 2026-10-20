@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -117,8 +118,37 @@ fn notify_always(summary: &str, body: &str, icon: Option<&Path>) {
     if std::env::var_os("QUEIJO_NO_NOTIFY").is_some() {
         return;
     }
+    if let Err(e) = notify_dbus(summary, body, icon) {
+        eprintln!("queijo: notification over D-Bus failed ({e}), trying notify-send");
+        notify_send(summary, body, icon);
+    }
+}
+
+/// `org.freedesktop.Notifications.Notify`, which every desktop's notifications speak.
+fn notify_dbus(summary: &str, body: &str, icon: Option<&Path>) -> Result<(), String> {
+    use zbus::zvariant::Value;
+
+    let conn = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
+    let mut hints: HashMap<&str, Value> = HashMap::new();
+    if let Some(icon) = icon {
+        hints.insert("image-path", icon.to_string_lossy().into_owned().into());
+    }
+    conn.call_method(
+        Some("org.freedesktop.Notifications"),
+        "/org/freedesktop/Notifications",
+        Some("org.freedesktop.Notifications"),
+        "Notify",
+        &("Queijo", 0u32, "", summary, body, Vec::<&str>::new(), hints, NOTIFICATION_MS),
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+const NOTIFICATION_MS: i32 = 4000;
+
+fn notify_send(summary: &str, body: &str, icon: Option<&Path>) {
     let mut cmd = Command::new("notify-send");
-    cmd.args(["--app-name=Queijo", "--expire-time=4000"]);
+    cmd.args(["--app-name=Queijo", &format!("--expire-time={NOTIFICATION_MS}")]);
     if let Some(icon) = icon {
         cmd.arg(format!("--icon={}", icon.display()));
     }

@@ -143,7 +143,7 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         program: "notify-send",
-        purpose: "desktop notifications",
+        purpose: "notifications, if D-Bus has none",
         when: When::Always,
         required: false,
         packages: ["libnotify-bin", "libnotify", "libnotify-tools", "libnotify", "libnotify"],
