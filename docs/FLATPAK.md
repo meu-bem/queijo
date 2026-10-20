@@ -18,11 +18,13 @@ not tried here).
 - Two things the study found that would break even a portals-only build, and that are not about
   portals at all: the **single-instance socket** (so "press the shortcut again to stop
   recording" stops working) and the **shortcut command** (it names a path inside the sandbox).
-- One thing could **not** be checked and decides everything else: whether the editor's
-  window opens in the sandbox. It failed here, with an error that points at a missing GL driver
-  extension on this machine, not at a limit of Flatpak. See "What was tried".
+- The window opens in the sandbox. The first try failed for want of the GL driver extension,
+  which this machine lacked; with `org.freedesktop.Platform.GL.default//24.08` installed it opens
+  and stays up. (That branch is end-of-life, so a real manifest would aim at a newer runtime.)
+  What has still not been seen is the editor's full-screen overlay and the portal's answer to a
+  sandboxed screenshot request, both of which need a person at the screen.
 - Recommendation: do it only if a Flathub presence is wanted, as the portals-only shape
-  (option A below), after the GL question is settled. It is a degraded experience, not a port.
+  (option A below). It is a degraded experience, not a port.
 
 ## What was tried
 
@@ -41,7 +43,7 @@ and bus filtering as an installed app. Nothing was installed.
 | Does it see the portal? | Yes, with `--talk-name=org.freedesktop.portal.Desktop` (the portal is in `--doctor`'s chain as "found"). | tested |
 | Can `gsettings` write the desktop's shortcuts, or enable the extension? | No: the sandbox has no `org.gnome.shell` schema (`No such schema`), let alone the host's dconf. | tested |
 | Can a second instance reach the first one's single-instance socket? | **No** in the default sandbox (`Connection refused`); yes with `--share=network`. | tested |
-| Does the editor's window open? | **Not verified.** It failed: `Found no glutin configs ... provided display handle is not supported`. This machine has no `org.freedesktop.Platform.GL.default` extension installed for the runtime (checked: no GL extension in `flatpak list`), so the sandbox has no GL driver, which is the usual cause of exactly this error. Installing it was not done, as that changes the user's Flatpak installation. | tested, inconclusive |
+| Does a window open? | **Yes, once the GL extension is there.** Without `org.freedesktop.Platform.GL.default` for the runtime (this machine had none) the settings window failed with `Found no glutin configs ... provided display handle is not supported`. After installing `org.freedesktop.Platform.GL.default//24.08` for the user (with the user's agreement), the same command opened the window and it stayed up until it was stopped, with nothing on stderr. Only the settings window was tried, not the full-screen editor, as that would dim the real screens and ask the portal for a screenshot. | tested |
 | Does a file written by the host (the Shell, the extension) reach the sandbox? | Not tested: `flatpak build` does not create the per-app runtime folder. | docs |
 
 ## Feature by feature
@@ -163,13 +165,14 @@ probed and may differ).
    My recommendation is **option A, and only after the GL question below is answered**; if the
    native packages already cover the audience, nothing is lost by waiting.
 2. Which app id? (`io.github.meu_bem.queijo` unless `queijo.app` is yours.)
-3. May the study be completed by installing `org.freedesktop.Platform.GL.default//24.08` for the user
-   (a download into the user's Flatpak installation, removable afterwards)? It would turn the one
-   unverified answer, whether the editor opens in the sandbox, into a tested one, and it should be
-   the first thing done before any manifest. On a machine with a normal Flatpak setup the extension
-   is installed with the runtime, so this may simply be this machine.
+3. (Settled.) The GL extension was installed for the user and the window opens. It can be removed
+   with `flatpak --user uninstall org.freedesktop.Platform.GL.default//24.08` and
+   `flatpak --user remote-delete flathub`.
+4. Still open, and needs someone at the screen: run the full editor in the sandbox and see what the
+   portal answers to its screenshot request (a prompt, a refusal, or silence), because that decides
+   how good a portals-only Queijo feels on GNOME.
 
-If the answer to the first question is yes, the order would be: settle the GL question; make the
-small code changes above (they do not depend on Flatpak existing); write the manifest, the
-AppStream file and the cargo sources; test on GNOME and KDE with a real installation; only then
-submit.
+If the answer to the first question is yes, the order would be: the open test in 4; the small code
+changes above (they do not depend on Flatpak existing); the manifest, the AppStream file and the
+cargo sources, on a runtime that is not end-of-life; a test on GNOME and KDE with a real
+installation; only then submit.
