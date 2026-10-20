@@ -12,6 +12,8 @@ All notable changes are documented here. The format follows
   version 0.1.0 did. `queijo --doctor` says whether a compositor was found.
 
 ### Changed
+- On X11 the monitors are read from the server (RandR) instead of running
+  `xrandr`, which is only a fallback now.
 - Drawing on the CPU, which the editor needs on GNOME with Wayland, is no longer
   forced on other desktops. `QUEIJO_SOFTWARE_GL=1` or `0` overrides the choice.
 - When no clipboard tool is installed, the error names the one to install for
