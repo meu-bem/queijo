@@ -83,17 +83,21 @@ usados quando o seletor de pastas e as notificações do próprio desktop não e
 ### Extensão do GNOME Shell (opcional)
 
 No GNOME só o Shell enxerga quais janelas existem, então uma pequena extensão
-fornece o seletor de janelas e o indicador de gravação na barra superior. O
-`.deb` e o `.tar.gz` já a incluem; ative e saia e entre de novo na sessão (no
-Wayland o Shell só carrega extensões novas no login):
+fornece o seletor de janelas e o indicador de gravação na barra superior. A partir
+do GNOME 49 ela também tira as capturas, porque o Shell deixou de atender os pedidos
+do próprio Queijo. São duas, porque o GNOME 45 mudou a forma de escrever extensões:
+uma para o GNOME 42 a 44 e outra para o 45 em diante. O `.deb` e o `.tar.gz` incluem
+as duas; este comando ativa a que serve ao seu GNOME, e depois você sai e entra de novo
+na sessão (no Wayland o Shell só carrega extensões novas no login):
 
 ```sh
-gnome-extensions enable queijo@queijo.app
+queijo --enable-extension
 ```
 
-Ela também sai sozinha como `queijo-gnome-extension-<versão>.zip`
-(`gnome-extensions install <arquivo>`). Sem ela, o modo janela captura a janela
-que estava ativa quando o Queijo abriu, e as gravações são paradas pelo atalho.
+Elas também saem sozinhas como `queijo-gnome-extension-<versão>-gnome42.zip` e
+`-gnome45.zip` (`gnome-extensions install <arquivo>`). Sem uma delas, o modo janela
+captura a janela que estava ativa quando o Queijo abriu, e as gravações são paradas
+pelo atalho.
 
 ## Uso
 
@@ -150,6 +154,7 @@ queijo -o ~/Capturas    # salva as imagens nessa pasta desta vez
 queijo --stop           # para uma gravação
 queijo --settings       # abre as configurações
 queijo --list-windows   # as janelas que o modo janela ofereceria
+queijo --enable-extension  # ativa a extensão do GNOME Shell que serve ao seu GNOME
 queijo --doctor         # o que o Queijo encontrou no seu sistema e o que falta
 ```
 

@@ -55,6 +55,7 @@ fn the_help_lists_the_options() {
         "--stop",
         "--list-monitors",
         "--list-windows",
+        "--enable-extension",
         "--doctor",
     ] {
         assert!(help.contains(option), "{option} is missing from the help");

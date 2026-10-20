@@ -48,7 +48,8 @@ only if `v<version>` doesn't exist yet:
 | --- | --- |
 | `queijo_<version>-1_amd64.deb` | package for Ubuntu 22.04 (installs the extension too) |
 | `queijo-<version>-x86_64-linux.tar.gz` | the binary, launchers, icons and extension with `install.sh` |
-| `queijo-gnome-extension-<version>.zip` | the GNOME Shell extension alone |
+| `queijo-gnome-extension-<version>-gnome42.zip` | the GNOME Shell extension for GNOME 42 to 44, alone |
+| `queijo-gnome-extension-<version>-gnome45.zip` | the one for GNOME 45 and later, alone |
 | `SHA256SUMS` | checksums of the three files above |
 
 If the version was already released, the workflow ends with a notice and publishes

@@ -28,6 +28,14 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- GNOME 45 and later: a second GNOME Shell extension (`queijo-gnome45@queijo.app`,
+  written as an ES module, which is what GNOME 45 changed) next to the one for GNOME 42 to 44.
+  `queijo --enable-extension` turns on the one that fits, and the packages carry both.
+- On GNOME 49 the Shell no longer answers screenshot requests from Queijo (it dropped
+  `org.gnome.Screenshot` from the names it allows, which Queijo used to borrow). The new
+  extension takes the screenshots from inside the Shell instead, and Queijo asks it after the
+  Shell, before the portal. Window pictures need `get_image`, which newer Shells may not
+  have; then the window is cut out of the screenshot.
 - On KDE Plasma with Wayland, window mode captures the active window through KWin
   (it takes the picture before the editor takes the focus, and finds it on the
   screen). KDE offers no way to list the other windows without a script run inside

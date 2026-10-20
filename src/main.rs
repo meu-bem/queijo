@@ -88,6 +88,15 @@ fn main() {
         return;
     }
 
+    if args.enable_extension {
+        match shell_ext::enable() {
+            Ok(shell_ext::Enabled::Now(uuid)) => println!("Enabled {uuid}. Log out and back in to load it."),
+            Ok(shell_ext::Enabled::AlreadyOn(uuid)) => println!("{uuid} is already enabled."),
+            Err(e) => fail(&e),
+        }
+        return;
+    }
+
     if args.list_windows {
         match windows::find(desktop::Env::current()) {
             Some((source, list)) => {

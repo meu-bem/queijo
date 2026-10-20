@@ -309,11 +309,11 @@ fn unquote(raw: &str) -> String {
 }
 
 /// `['a', 'b']` / `@as []` → `["a", "b"]`.
-fn parse_list(raw: &str) -> Vec<String> {
+pub(crate) fn parse_list(raw: &str) -> Vec<String> {
     raw.split('\'').skip(1).step_by(2).map(str::to_string).collect()
 }
 
-fn gvariant_list(items: &[String]) -> String {
+pub(crate) fn gvariant_list(items: &[String]) -> String {
     if items.is_empty() {
         "@as []".into()
     } else {

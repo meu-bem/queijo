@@ -7,11 +7,13 @@ use image::RgbaImage;
 use crate::desktop::{Desktop, Env, Session};
 use crate::monitors::Monitor;
 
-/// A connection GNOME Shell accepts screenshot requests from.
+/// A connection GNOME Shell takes screenshots for: through its own service, or (since
+/// GNOME 49 refuses us that) through the Queijo extension inside it.
 #[derive(Clone)]
 pub struct Shell {
     conn: zbus::blocking::Connection,
     dir: PathBuf,
+    extension: bool,
 }
 
 impl Shell {
@@ -32,8 +34,17 @@ impl Shell {
     /// a while encoding them.
     pub fn with_pointer(&self, requested: &AtomicBool) -> Option<RgbaImage> {
         requested.store(true, Ordering::Release);
-        finish(shell_shot(&self.conn, "Screenshot", &self.path("pointer"), |f| (true, false, f).into()))
+        let path = self.path("pointer");
+        if self.extension {
+            return finish(extension_shot(&self.conn, &path, true));
+        }
+        finish(shell_shot(&self.conn, "Screenshot", &path, |f| (true, false, f).into()))
     }
+}
+
+/// Waits for the decoded picture, keeping the reason if there is none.
+fn finish_shot(shot: Result<Decoder, String>) -> Result<RgbaImage, String> {
+    shot.and_then(|h| h.join().map_err(|_| "decoder panicked".to_string())?)
 }
 
 fn finish(shot: Result<Decoder, String>) -> Option<RgbaImage> {
@@ -64,6 +75,8 @@ pub enum Backend {
     GnomeShell,
     /// The X server itself, for a real X11 session.
     X11,
+    /// The Queijo GNOME Shell extension, which takes the screenshot from inside the Shell.
+    Extension,
     /// KDE Plasma's screenshot service.
     KWin,
     Spectacle,
@@ -78,6 +91,7 @@ impl Backend {
         match self {
             Backend::GnomeShell => "GNOME Shell",
             Backend::X11 => "X11",
+            Backend::Extension => "Queijo GNOME Shell extension",
             Backend::KWin => "KWin",
             Backend::Spectacle => "spectacle",
             Backend::Portal => "desktop portal",
@@ -93,13 +107,13 @@ pub fn screenshot_backends(env: &Env) -> Vec<Backend> {
     match (env.session, &env.desktop) {
         (Session::X11, Desktop::Gnome) => vec![GnomeShell, X11, Portal, GnomeScreenshot],
         (Session::X11, _) => vec![X11, Portal],
-        (Session::Wayland, Desktop::Gnome) => vec![GnomeShell, Portal, GnomeScreenshot],
+        (Session::Wayland, Desktop::Gnome) => vec![GnomeShell, Extension, Portal, GnomeScreenshot],
         (Session::Wayland, Desktop::Kde) => vec![KWin, Spectacle, Portal],
         // These speak wlr-screencopy, which grim uses: faster than the portal and it never asks.
         (Session::Wayland, Desktop::Sway | Desktop::Hyprland) => vec![Grim, Portal],
         (Session::Wayland, _) => vec![Portal, Grim],
         // No display variables (started from somewhere odd): the GNOME Shell answers on D-Bus anyway.
-        (Session::Headless, _) => vec![GnomeShell, Portal, GnomeScreenshot, Grim],
+        (Session::Headless, _) => vec![GnomeShell, Extension, Portal, GnomeScreenshot, Grim],
     }
 }
 
@@ -133,7 +147,7 @@ impl Backend {
     fn capture(self, dir: PathBuf, file: &Path, window_taken: &AtomicBool) -> Result<Capture, String> {
         match self {
             Backend::GnomeShell => {
-                let shell = connect().map(|conn| Shell { conn, dir });
+                let shell = connect().map(|conn| Shell { conn, dir, extension: false });
                 let window = match &shell {
                     Some(shell) if !window_taken.load(Ordering::Acquire) => shell.window(window_taken),
                     _ => None,
@@ -146,6 +160,11 @@ impl Backend {
                     .and_then(|shell| shell_shot(&shell.conn, "Screenshot", file, |f| (false, false, f).into()))
                     .and_then(|h| h.join().map_err(|_| "decoder panicked".to_string())?)?;
                 Ok(Capture { desktop, shell, window, cursor: None })
+            }
+            Backend::Extension => {
+                let conn = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
+                let desktop = finish_shot(extension_shot(&conn, file, false))?;
+                Ok(Capture { desktop, shell: Some(Shell { conn, dir, extension: true }), window: None, cursor: None })
             }
             Backend::X11 => {
                 let (desktop, cursor) = crate::x11::screenshot(None)?;
@@ -263,6 +282,13 @@ fn shell_shot(
         let _ = std::fs::remove_file(path);
         return Err(format!("{method}: the shell refused"));
     }
+    let path = path.to_path_buf();
+    Ok(std::thread::spawn(move || load(&path)))
+}
+
+/// A screenshot by the Queijo extension, decoded in the background.
+fn extension_shot(conn: &zbus::blocking::Connection, path: &Path, include_cursor: bool) -> Result<Decoder, String> {
+    crate::shell_ext::screenshot(conn, path, include_cursor)?;
     let path = path.to_path_buf();
     Ok(std::thread::spawn(move || load(&path)))
 }
@@ -478,8 +504,8 @@ mod tests {
         let wayland = Env { session: Session::Wayland, desktop: Desktop::Gnome, compositing: true };
         assert_eq!(
             screenshot_backends(&wayland),
-            [Backend::GnomeShell, Backend::Portal, Backend::GnomeScreenshot],
-            "the Shell stays first on GNOME with Wayland"
+            [Backend::GnomeShell, Backend::Extension, Backend::Portal, Backend::GnomeScreenshot],
+            "the Shell stays first on GNOME with Wayland, and our extension is the next thing to ask"
         );
     }
 

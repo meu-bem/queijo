@@ -50,6 +50,10 @@ pub struct Cli {
     #[arg(long)]
     pub list_windows: bool,
 
+    /// Turn on the Queijo GNOME Shell extension that fits your GNOME, then exit
+    #[arg(long)]
+    pub enable_extension: bool,
+
     /// Print what Queijo found on this system and what it is missing, then exit
     #[arg(long)]
     pub doctor: bool,
@@ -72,7 +76,15 @@ mod tests {
     #[test]
     fn no_arguments_means_the_editor_with_the_settings() {
         let cli = parse(&[]).unwrap();
-        assert!(!cli.quick && !cli.stop && !cli.settings && !cli.list_monitors && !cli.list_windows && !cli.doctor);
+        assert!(
+            !cli.quick
+                && !cli.stop
+                && !cli.settings
+                && !cli.list_monitors
+                && !cli.list_windows
+                && !cli.doctor
+                && !cli.enable_extension
+        );
         assert!(cli.kind.is_none() && cli.area.is_none() && cli.monitor.is_none() && cli.record.is_none());
         assert_eq!(cli.delay, 0);
     }
@@ -92,6 +104,7 @@ mod tests {
         assert!(parse(&["--list-monitors"]).unwrap().list_monitors);
         assert!(parse(&["--list-windows"]).unwrap().list_windows);
         assert!(parse(&["--doctor"]).unwrap().doctor);
+        assert!(parse(&["--enable-extension"]).unwrap().enable_extension);
         assert_eq!(parse(&["--record", "1,2,3,4,0,1"]).unwrap().record.as_deref(), Some("1,2,3,4,0,1"));
     }
 
@@ -121,6 +134,7 @@ mod tests {
             "--stop",
             "--list-monitors",
             "--list-windows",
+            "--enable-extension",
             "--doctor",
             "--quick",
         ] {

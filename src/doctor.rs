@@ -237,6 +237,7 @@ fn backend_line(backend: Backend, env: &Env) -> String {
         Backend::GnomeShell | Backend::X11 if env.session == Session::Headless => "no display",
         Backend::X11 => yes_no(Some(crate::x11::screenshot(None).is_ok())),
         Backend::Portal => yes_no(bus_name_taken("org.freedesktop.portal.Desktop")),
+        Backend::Extension => yes_no(Some(crate::shell_ext::ShellExtension::connect().is_some())),
         Backend::KWin => yes_no(bus_name_taken("org.kde.KWin")),
         Backend::Spectacle => yes_no(Some(on_path("spectacle"))),
         Backend::GnomeShell => yes_no(bus_name_taken("org.gnome.Shell.Screenshot")),
@@ -334,6 +335,10 @@ fn report(env: &Env) -> String {
         Session::Headless => "no display".to_string(),
         _ => match crate::windows::find(env) {
             Some((source, list)) => format!("{} lists {} windows", source.name(), list.len()),
+            None if env.desktop == Desktop::Gnome => {
+                "no window list (the Queijo extension is not running: `queijo --enable-extension`, then log out and in)"
+                    .to_string()
+            }
             None => "no window list (only the focused window can be picked)".to_string(),
         },
     };

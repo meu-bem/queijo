@@ -42,8 +42,8 @@ screen or a window, annotate it and copy or save it. It also records \
 screencasts and animated GIFs, and has a settings window for shortcuts, \
 folders, file names and language (English and Portuguese). \
 A bundled GNOME Shell extension adds a window picker and a recording \
-indicator in the top bar; enable it with \
-`gnome-extensions enable queijo@queijo.app`."""
+indicator in the top bar (one for GNOME 42 to 44 and one for GNOME 45 and \
+later); enable the right one with `queijo --enable-extension`."""
 # The graphics libraries are opened at run time, so they are not found automatically.
 depends = """$auto, gnome-shell (>= 42), libglib2.0-bin, wl-clipboard, ffmpeg, \
 libwayland-client0, libxkbcommon0, libxkbcommon-x11-0, libegl1, libgl1, libx11-6, libxcb1, \
@@ -63,6 +63,8 @@ assets = [
     ["assets/icons/512x512/queijo.png", "usr/share/icons/hicolor/512x512/apps/", "644"],
     ["gnome-extension/queijo@queijo.app/extension.js", "usr/share/gnome-shell/extensions/queijo@queijo.app/", "644"],
     ["gnome-extension/queijo@queijo.app/metadata.json", "usr/share/gnome-shell/extensions/queijo@queijo.app/", "644"],
+    ["gnome-extension/esm/queijo-gnome45@queijo.app/extension.js", "usr/share/gnome-shell/extensions/queijo-gnome45@queijo.app/", "644"],
+    ["gnome-extension/esm/queijo-gnome45@queijo.app/metadata.json", "usr/share/gnome-shell/extensions/queijo-gnome45@queijo.app/", "644"],
     ["README.md", "usr/share/doc/queijo/", "644"],
 ]
 

@@ -79,17 +79,21 @@ only used when the desktop's own folder chooser and notifications are not there.
 ### GNOME Shell extension (optional)
 
 GNOME lets only the Shell see which windows exist, so a small extension provides
-the window picker and the top-bar recording indicator. The `.deb` and the `.tar.gz`
-include it; enable it and log out and back in (on Wayland the Shell only loads new
-extensions at login):
+the window picker and the top-bar recording indicator. Since GNOME 49 it also takes
+the screenshots, because the Shell no longer answers Queijo's own requests. There are
+two of them, because GNOME 45 changed how extensions are written: one for GNOME 42 to
+44 and one for 45 and later. The `.deb` and the `.tar.gz` include both; this turns on
+the one that fits your GNOME, and then you log out and back in (on Wayland the Shell
+only loads new extensions at login):
 
 ```sh
-gnome-extensions enable queijo@queijo.app
+queijo --enable-extension
 ```
 
-It is also released on its own as `queijo-gnome-extension-<version>.zip`
-(`gnome-extensions install <file>`). Without it, window mode captures the window
-that was active when Queijo opened, and recordings are stopped with the shortcut.
+They are also released on their own as `queijo-gnome-extension-<version>-gnome42.zip`
+and `-gnome45.zip` (`gnome-extensions install <file>`). Without one, window mode
+captures the window that was active when Queijo opened, and recordings are stopped with
+the shortcut.
 
 ## Use
 
@@ -146,6 +150,7 @@ queijo -o ~/Shots       # save screenshots there this time
 queijo --stop           # stop a recording
 queijo --settings       # open the settings
 queijo --list-windows   # the windows that window mode would offer
+queijo --enable-extension  # turn on the GNOME Shell extension that fits your GNOME
 queijo --doctor         # what Queijo found on your system, and what is missing
 ```
 

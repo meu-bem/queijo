@@ -93,6 +93,19 @@ from the screen's picture. Other window managers (and their `_NET_FRAME_EXTENTS`
 example with client-side decorations) have not been tried. A window that another covers
 shows what is on screen there, because X11 has no way to ask for its hidden pixels.
 
+GNOME 45 and later: the extension for them (`gnome-extension/esm/`) has only been run
+against stand-ins for GNOME's modules (`tests/extension/`), which checks its logic and the
+shape of its D-Bus interface but not that the real Shell accepts what it calls. Source checks
+that were done: GNOME 48's screenshot service still allows `org.gnome.Screenshot`; GNOME 49's
+allows only `org.gnome.SettingsDaemon.MediaKeys` and `org.freedesktop.impl.portal.desktop.gnome`,
+which are owned by running programs and can't be borrowed. 49's own code takes a screenshot with
+`new Shell.Screenshot().screenshot(includeCursor, stream)` into a file opened with
+`file.replace(null, false, Gio.FileCreateFlags.NONE, null)`, which is what the extension does. Not
+checked: whether the screencast service has the same restriction (the portal is the fallback), and
+whether `Meta.WindowActor.get_image` still exists (newer shells use `paint_to_content`). Things
+to look at on a GNOME 45 to 49: that `queijo --doctor` finds the extension after login, the
+screenshot, the window picker with its previews, and the recording indicator.
+
 ## What to try in each environment
 
 1. **Overlay**: the screen dims, the live screen shows through, and the selection
