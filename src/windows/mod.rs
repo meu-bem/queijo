@@ -3,6 +3,8 @@
 
 use image::RgbaImage;
 
+mod hyprland;
+mod sway;
 mod x11;
 
 use crate::desktop::{Desktop, Env, Session};
@@ -63,6 +65,8 @@ pub enum Kind {
     Extension,
     /// An X11 window manager's EWMH properties.
     X11,
+    Sway,
+    Hyprland,
 }
 
 pub fn kinds(env: &Env) -> Vec<Kind> {
@@ -73,6 +77,13 @@ pub fn kinds(env: &Env) -> Vec<Kind> {
     if env.session == Session::X11 {
         kinds.push(Kind::X11);
     }
+    if env.session == Session::Wayland {
+        match env.desktop {
+            Desktop::Sway => kinds.push(Kind::Sway),
+            Desktop::Hyprland => kinds.push(Kind::Hyprland),
+            _ => {}
+        }
+    }
     kinds
 }
 
@@ -82,6 +93,8 @@ pub fn find(env: &Env) -> Option<(Box<dyn WindowSource>, Vec<WindowInfo>)> {
         let source: Box<dyn WindowSource> = match kind {
             Kind::Extension => Box::new(crate::shell_ext::ShellExtension::connect()?),
             Kind::X11 => Box::new(x11::X11Windows::new()),
+            Kind::Sway => Box::new(sway::Sway),
+            Kind::Hyprland => Box::new(hyprland::Hyprland),
         };
         let list = source.list()?;
         Some((source, list))
@@ -171,6 +184,13 @@ mod tests {
         assert_eq!(kinds(&env(Desktop::Gnome)), [Kind::Extension]);
         assert_eq!(kinds(&env(Desktop::Other(String::new()))), [Kind::Extension]);
         assert!(kinds(&env(Desktop::Kde)).is_empty());
+    }
+
+    #[test]
+    fn sway_and_hyprland_are_asked_about_their_own_windows() {
+        let env = |desktop| Env { session: Session::Wayland, desktop, compositing: true };
+        assert_eq!(kinds(&env(Desktop::Sway)), [Kind::Sway]);
+        assert_eq!(kinds(&env(Desktop::Hyprland)), [Kind::Hyprland]);
     }
 
     #[test]

@@ -1,0 +1,52 @@
+[
+ {
+  "id": 0,
+  "name": "DP-1",
+  "description": "Dell",
+  "width": 2560,
+  "height": 1440,
+  "refreshRate": 60.0,
+  "x": 0,
+  "y": 0,
+  "activeWorkspace": {
+   "id": 1,
+   "name": "1"
+  },
+  "reserved": [
+   0,
+   30,
+   0,
+   0
+  ],
+  "scale": 2.0,
+  "transform": 0,
+  "focused": true,
+  "dpmsStatus": true,
+  "vrr": false
+ },
+ {
+  "id": 1,
+  "name": "HDMI-A-1",
+  "description": "LG",
+  "width": 1920,
+  "height": 1080,
+  "refreshRate": 60.0,
+  "x": 1280,
+  "y": 0,
+  "activeWorkspace": {
+   "id": 3,
+   "name": "3"
+  },
+  "reserved": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "scale": 1.0,
+  "transform": 0,
+  "focused": false,
+  "dpmsStatus": true,
+  "vrr": false
+ }
+]

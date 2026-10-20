@@ -28,6 +28,9 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- Window mode lists every window on Sway (through `swaymsg`) and on Hyprland (through
+  `hyprctl`), with a preview cut from the screen's picture. The Hyprland side is written
+  from the fields `hyprctl` is documented to give and has not met a running Hyprland.
 - Window mode lists every window on X11, from the window manager's own
   properties (EWMH), with a preview cut from the screen's picture. A window that
   another covers shows what is on screen there. `queijo --list-windows` prints

@@ -2228,6 +2228,7 @@ dependencies = [
  "image",
  "rustix 1.1.4",
  "serde",
+ "serde_json",
  "tempfile",
  "toml",
  "wayland-client",

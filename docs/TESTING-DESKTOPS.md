@@ -73,6 +73,12 @@ chosen screen is what is recorded, that a remembered screen is not asked again, 
 area on another screen records the whole picked one with a notification, and fractional
 scaling (the recording is made at the screen's logical size).
 
+Window mode on Sway was tried on a headless Sway with a real window: the list and the picker
+work. On Hyprland it has only been checked against JSON written by hand from the fields
+`hyprctl -j clients` and `-j monitors` are known to have (focus order stands in for stacking
+order, and workspace and monitor are matched through `activeWorkspace`), never against a running
+Hyprland. On Sway the floating windows are listed first, the last of them topmost, then the tiled.
+
 Window mode on X11 was tried with openbox on a virtual screen: the list, its order, the
 focus and the frames match what the window manager does, and the picker shows previews cut
 from the screen's picture. Other window managers (and their `_NET_FRAME_EXTENTS`, for

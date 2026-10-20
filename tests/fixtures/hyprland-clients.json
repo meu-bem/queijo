@@ -1,0 +1,226 @@
+[
+ {
+  "address": "0x5581a0c3e5f0",
+  "mapped": true,
+  "hidden": false,
+  "at": [
+   0,
+   30
+  ],
+  "size": [
+   1280,
+   1050
+  ],
+  "workspace": {
+   "id": 1,
+   "name": "1"
+  },
+  "floating": false,
+  "monitor": 0,
+  "class": "kitty",
+  "title": "~/src \u2014 kitty",
+  "initialClass": "kitty",
+  "initialTitle": "~/src \u2014 kitty",
+  "pid": 1001,
+  "xwayland": false,
+  "pinned": false,
+  "fullscreen": 0,
+  "focusHistoryID": 1
+ },
+ {
+  "address": "0x5581a0c4a110",
+  "mapped": true,
+  "hidden": false,
+  "at": [
+   1280,
+   30
+  ],
+  "size": [
+   1920,
+   1050
+  ],
+  "workspace": {
+   "id": 3,
+   "name": "3"
+  },
+  "floating": false,
+  "monitor": 1,
+  "class": "firefox",
+  "title": "Queijo \u2014 Mozilla Firefox",
+  "initialClass": "firefox",
+  "initialTitle": "Queijo \u2014 Mozilla Firefox",
+  "pid": 1002,
+  "xwayland": false,
+  "pinned": false,
+  "fullscreen": 0,
+  "focusHistoryID": 2
+ },
+ {
+  "address": "0x5581a0c52bc0",
+  "mapped": true,
+  "hidden": false,
+  "at": [
+   400,
+   300
+  ],
+  "size": [
+   500,
+   400
+  ],
+  "workspace": {
+   "id": 1,
+   "name": "1"
+  },
+  "floating": true,
+  "monitor": 0,
+  "class": "pavucontrol",
+  "title": "Volume Control",
+  "initialClass": "pavucontrol",
+  "initialTitle": "Volume Control",
+  "pid": 1000,
+  "xwayland": false,
+  "pinned": false,
+  "fullscreen": 0,
+  "focusHistoryID": 0
+ },
+ {
+  "address": "0x5581a0c60001",
+  "mapped": true,
+  "hidden": false,
+  "at": [
+   0,
+   30
+  ],
+  "size": [
+   1280,
+   1050
+  ],
+  "workspace": {
+   "id": 2,
+   "name": "2"
+  },
+  "floating": false,
+  "monitor": 0,
+  "class": "thunderbird",
+  "title": "Inbox",
+  "initialClass": "thunderbird",
+  "initialTitle": "Inbox",
+  "pid": 1003,
+  "xwayland": false,
+  "pinned": false,
+  "fullscreen": 0,
+  "focusHistoryID": 3
+ },
+ {
+  "address": "0x5581a0c60002",
+  "mapped": false,
+  "hidden": false,
+  "at": [
+   0,
+   0
+  ],
+  "size": [
+   10,
+   10
+  ],
+  "workspace": {
+   "id": 1,
+   "name": "1"
+  },
+  "floating": false,
+  "monitor": 0,
+  "class": "ghost",
+  "title": "never shown",
+  "initialClass": "ghost",
+  "initialTitle": "never shown",
+  "pid": 1004,
+  "xwayland": false,
+  "pinned": false,
+  "fullscreen": 0,
+  "focusHistoryID": 4
+ },
+ {
+  "address": "0x5581a0c60003",
+  "mapped": true,
+  "hidden": false,
+  "at": [
+   50,
+   50
+  ],
+  "size": [
+   400,
+   300
+  ],
+  "workspace": {
+   "id": -99,
+   "name": "special:scratchpad"
+  },
+  "floating": true,
+  "monitor": 0,
+  "class": "foot",
+  "title": "scratchpad",
+  "initialClass": "foot",
+  "initialTitle": "scratchpad",
+  "pid": 1005,
+  "xwayland": false,
+  "pinned": false,
+  "fullscreen": 0,
+  "focusHistoryID": 5
+ },
+ {
+  "address": "0x5581a0c60004",
+  "mapped": true,
+  "hidden": false,
+  "at": [
+   0,
+   0
+  ],
+  "size": [
+   1280,
+   1050
+  ],
+  "workspace": {
+   "id": 1,
+   "name": "1"
+  },
+  "floating": true,
+  "monitor": 0,
+  "class": "queijo",
+  "title": "Queijo",
+  "initialClass": "queijo",
+  "initialTitle": "Queijo",
+  "pid": 1006,
+  "xwayland": false,
+  "pinned": false,
+  "fullscreen": 0,
+  "focusHistoryID": 6
+ },
+ {
+  "address": "0x5581a0c60005",
+  "mapped": true,
+  "hidden": false,
+  "at": [
+   10,
+   10
+  ],
+  "size": [
+   200,
+   100
+  ],
+  "workspace": {
+   "id": 1,
+   "name": "1"
+  },
+  "floating": false,
+  "monitor": -1,
+  "class": "orphan",
+  "title": "no monitor",
+  "initialClass": "orphan",
+  "initialTitle": "no monitor",
+  "pid": 1007,
+  "xwayland": false,
+  "pinned": false,
+  "fullscreen": 0,
+  "focusHistoryID": 7
+ }
+]

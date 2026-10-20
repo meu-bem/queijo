@@ -24,7 +24,7 @@ export QUEIJO_NO_NOTIFY=1 WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RE
 unset DISPLAY DBUS_SESSION_BUS_ADDRESS WAYLAND_DISPLAY
 mkdir -p "$XDG_CONFIG_HOME/queijo"
 
-printf 'output HEADLESS-1 resolution 1280x720 position 0 0 bg #ff0000 solid_color\n' > "$work/sway.conf"
+printf 'output HEADLESS-1 resolution 1280x720 position 0 0 bg #ff0000 solid_color\nfor_window [app_id="queijo-settings"] floating enable\n' > "$work/sway.conf"
 sway -c "$work/sway.conf" > "$work/sway.log" 2>&1 &
 sway=$!
 for _ in $(seq 1 20); do
@@ -37,6 +37,10 @@ if [ ! -S "$runtime/wayland-1" ]; then
     exit 1
 fi
 export WAYLAND_DISPLAY=wayland-1
+# A real session gets this from Sway; swaymsg (and so Queijo) finds Sway through it.
+SWAYSOCK=""
+for SWAYSOCK in "$runtime"/sway-ipc.*.sock; do break; done
+export SWAYSOCK
 sleep 2
 
 red() { convert png:- -format '%[fx:mean.r]' info:; }
@@ -62,6 +66,18 @@ if grep -q "trying" "$work/quick.log"; then
     cat "$work/quick.log"
     exit 1
 fi
+
+# Window mode lists the windows Sway has, through swaymsg: open one of Queijo's own.
+"$bin" --settings > "$work/settings.log" 2>&1 &
+editor=$!
+sleep 4
+listing=$("$bin" --list-windows)
+echo "$listing"
+kill "$editor" 2>/dev/null || true
+case "$listing" in
+    "Sway (1 windows, topmost first)"*"queijo-settings  Queijo Settings"*) ;;
+    *) echo "FAIL: the window list is not Sway's one window"; exit 1 ;;
+esac
 
 "$bin" > "$work/editor.log" 2>&1 &
 editor=$!
