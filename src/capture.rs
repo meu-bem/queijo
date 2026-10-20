@@ -54,6 +54,27 @@ pub struct Capture {
     pub window: Option<RgbaImage>,
 }
 
+/// A way of taking the screenshot of the whole desktop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Backend {
+    GnomeShell,
+    GnomeScreenshot,
+    Grim,
+}
+
+impl Backend {
+    pub fn name(self) -> &'static str {
+        match self {
+            Backend::GnomeShell => "GNOME Shell",
+            Backend::GnomeScreenshot => "gnome-screenshot",
+            Backend::Grim => "grim",
+        }
+    }
+}
+
+/// The backends in the order they are tried; the first that works wins.
+pub const SCREENSHOT_BACKENDS: [Backend; 3] = [Backend::GnomeShell, Backend::GnomeScreenshot, Backend::Grim];
+
 /// Like `capture`, but when `window_taken` is still false it first grabs the
 /// focused window (it has to happen before our own windows take the focus) and
 /// sets the flag once the Shell has it. The Shell serves one request per
@@ -62,29 +83,46 @@ pub fn capture_with_window(window_taken: &AtomicBool) -> Result<Capture, String>
     let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     let file = dir.join(format!("queijo-{}-desktop.png", std::process::id()));
 
-    let shell = connect().map(|conn| Shell { conn, dir });
-    let window = match &shell {
-        Some(shell) if !window_taken.load(Ordering::Acquire) => shell.window(window_taken),
-        _ => None,
-    };
-    window_taken.store(true, Ordering::Release);
-
-    let desktop = shell
-        .as_ref()
-        .ok_or_else(|| "no session bus".to_string())
-        .and_then(|shell| shell_shot(&shell.conn, "Screenshot", &file, |f| (false, false, f).into()))
-        .and_then(|h| h.join().map_err(|_| "decoder panicked".to_string())?);
-    match desktop {
-        Ok(desktop) => Ok(Capture { desktop, shell, window }),
-        Err(e) => {
-            eprintln!("queijo: GNOME Shell screenshot failed ({e}), falling back to gnome-screenshot");
-            let result = run("gnome-screenshot", &["-f"], &file).or_else(|e| {
-                eprintln!("queijo: gnome-screenshot failed ({e}), trying grim");
-                run("grim", &[], &file)
-            });
-            Ok(Capture { desktop: result.and_then(|_| load(&file))?, shell: None, window: None })
+    let mut backends = SCREENSHOT_BACKENDS.iter().copied().peekable();
+    while let Some(backend) = backends.next() {
+        match backend.capture(dir.clone(), &file, window_taken) {
+            Ok(shot) => return Ok(shot),
+            Err(e) => match backends.peek() {
+                Some(next) => eprintln!("queijo: {} failed ({e}), trying {}", backend.name(), next.name()),
+                None => return Err(e),
+            },
         }
     }
+    Err("no screenshot backend".into())
+}
+
+impl Backend {
+    fn capture(self, dir: PathBuf, file: &Path, window_taken: &AtomicBool) -> Result<Capture, String> {
+        match self {
+            Backend::GnomeShell => {
+                let shell = connect().map(|conn| Shell { conn, dir });
+                let window = match &shell {
+                    Some(shell) if !window_taken.load(Ordering::Acquire) => shell.window(window_taken),
+                    _ => None,
+                };
+                window_taken.store(true, Ordering::Release);
+
+                let desktop = shell
+                    .as_ref()
+                    .ok_or_else(|| "no session bus".to_string())
+                    .and_then(|shell| shell_shot(&shell.conn, "Screenshot", file, |f| (false, false, f).into()))
+                    .and_then(|h| h.join().map_err(|_| "decoder panicked".to_string())?)?;
+                Ok(Capture { desktop, shell, window })
+            }
+            Backend::GnomeScreenshot => run("gnome-screenshot", &["-f"], file).and_then(|_| tool_shot(file)),
+            Backend::Grim => run("grim", &[], file).and_then(|_| tool_shot(file)),
+        }
+    }
+}
+
+/// What an external tool wrote: a picture of the desktop and nothing more.
+fn tool_shot(file: &Path) -> Result<Capture, String> {
+    Ok(Capture { desktop: load(file)?, shell: None, window: None })
 }
 
 fn load(path: &Path) -> Result<RgbaImage, String> {
@@ -286,6 +324,11 @@ mod tests {
             state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             Rgba([(state >> 8) as u8, (state >> 16) as u8, (state >> 24) as u8, 255])
         })
+    }
+
+    #[test]
+    fn tries_the_gnome_shell_first_then_the_tools() {
+        assert_eq!(SCREENSHOT_BACKENDS, [Backend::GnomeShell, Backend::GnomeScreenshot, Backend::Grim]);
     }
 
     fn crop(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> RgbaImage {
