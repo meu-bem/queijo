@@ -15,6 +15,9 @@ All notable changes are documented here. The format follows
   version 0.1.0 did. `queijo --doctor` says whether a compositor was found.
 
 ### Changed
+- The `.deb` no longer depends on `gnome-shell`, which would have pulled GNOME onto a Kubuntu or
+  Xubuntu. It depends on `ffmpeg`, `libc6 (>= 2.28)`, the libraries and a clipboard tool
+  (`wl-clipboard` or `xclip`); the rest is recommended or suggested.
 - On X11 the monitors are read from the server (RandR) instead of running
   `xrandr`, which is only a fallback now.
 - Drawing on the CPU, which the editor needs on GNOME with Wayland, is no longer
@@ -28,6 +31,14 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- `.rpm` packages for Fedora, openSUSE, RHEL and their clones, a `PKGBUILD` and `.SRCINFO` for the
+  AUR (`queijo-bin`, not published there yet), and aarch64 builds of the `.deb`, the `.rpm` and the
+  `.tar.gz`. The binary is now built against glibc 2.28, so one build runs on Debian 10, RHEL 8
+  and its clones, Ubuntu 20.04 and newer; before, it needed the glibc of Ubuntu 22.04.
+- `queijo --doctor` also checks the libraries the editor opens when it starts (the window-system
+  and graphics ones, which no package manager can see as dependencies) and says which package
+  has each on your distribution. `packaging/dependencies.md` lists them, and the programs, for
+  apt, dnf, zypper, pacman and apk; a test keeps it equal to the code, and to what the packages declare.
 - While recording, a tray icon (a red dot, with the time in its tooltip) is shown on desktops
   that have a system tray (KDE, Xfce, Cinnamon, MATE, waybar, GNOME with the AppIndicator
   extension...), through the StatusNotifierItem protocol. Clicking it, or its "Stop recording"

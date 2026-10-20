@@ -91,7 +91,7 @@ jobs:
       - name: Launchers
         run: desktop-file-validate packaging/*.desktop
       - name: Shell scripts
-        run: shellcheck scripts/*.sh packaging/install.sh gnome-extension/install.sh
+        run: shellcheck scripts/*.sh packaging/install.sh packaging/check-install.sh gnome-extension/install.sh
       - name: The changelog has an entry for this version
         run: |
           version=$(scripts/version.sh)
@@ -148,15 +148,40 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y zip
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
-      - run: cargo install cargo-deb --locked
+      - uses: ./.github/actions/packaging-tools
       - run: scripts/build-packages.sh
       - uses: actions/upload-artifact@v4
         with:
           name: queijo-packages
           path: dist/
+          include-hidden-files: true # the .SRCINFO
           retention-days: 14
+
+  distros:
+    name: Install on ${{ matrix.image }}
+    needs: package
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each one is installed the way its users do (apt, dnf, zypper, makepkg) and has to run.
+        # rockylinux:8 has glibc 2.28, the oldest the release promises.
+        image:
+          - debian:12
+          - ubuntu:22.04
+          - ubuntu:24.04
+          - fedora:latest
+          - rockylinux:8
+          - opensuse/tumbleweed
+          - archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: queijo-packages
+          path: dist
+      - run: scripts/distro-test.sh ${{ matrix.image }}

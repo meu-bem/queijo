@@ -96,6 +96,17 @@ enum When {
 }
 
 impl When {
+    #[cfg(test)]
+    fn describe(self) -> &'static str {
+        match self {
+            When::Always => "always",
+            When::Wayland => "Wayland",
+            When::X11 => "X11",
+            When::Kde => "KDE Plasma",
+            When::Wlroots => "Sway and Hyprland",
+        }
+    }
+
     fn applies(self, env: &Env) -> bool {
         match self {
             When::Always => true,
@@ -137,6 +148,13 @@ const TOOLS: &[Tool] = &[
         when: When::X11,
         required: true,
         packages: ["xclip"; 5],
+    },
+    Tool {
+        program: "gsettings",
+        purpose: "keyboard shortcuts on GNOME, Cinnamon and MATE, and `queijo --enable-extension`",
+        when: When::Always,
+        required: false,
+        packages: ["libglib2.0-bin", "glib2", "glib2-tools", "glib2", "glib"],
     },
     Tool {
         program: "gifsicle",
@@ -195,6 +213,130 @@ const TOOLS: &[Tool] = &[
         packages: ["grim"; 5],
     },
 ];
+
+/// A library the editor opens when it starts. They are found at run time, so no package
+/// manager sees them as dependencies and each package lists them by hand.
+pub struct Library {
+    pub soname: &'static str,
+    when: When,
+    /// Package names for apt, dnf, zypper, pacman and apk, in that order.
+    packages: [&'static str; 5],
+}
+
+pub const LIBRARIES: &[Library] = &[
+    Library {
+        soname: "libwayland-client.so.0",
+        when: When::Wayland,
+        packages: ["libwayland-client0", "libwayland-client", "libwayland-client0", "wayland", "wayland-libs-client"],
+    },
+    Library {
+        soname: "libxkbcommon.so.0",
+        when: When::Always,
+        packages: ["libxkbcommon0", "libxkbcommon", "libxkbcommon0", "libxkbcommon", "libxkbcommon"],
+    },
+    Library {
+        soname: "libxkbcommon-x11.so.0",
+        when: When::X11,
+        packages: [
+            "libxkbcommon-x11-0",
+            "libxkbcommon-x11",
+            "libxkbcommon-x11-0",
+            "libxkbcommon-x11",
+            "libxkbcommon-x11",
+        ],
+    },
+    Library {
+        soname: "libEGL.so.1",
+        when: When::Always,
+        packages: ["libegl1", "libglvnd-egl", "libglvnd", "libglvnd", "mesa-egl"],
+    },
+    Library {
+        soname: "libGL.so.1",
+        when: When::Always,
+        packages: ["libgl1", "libglvnd-glx", "libglvnd", "libglvnd", "mesa-gl"],
+    },
+    Library {
+        soname: "libX11.so.6",
+        when: When::X11,
+        packages: ["libx11-6", "libX11", "libX11-6", "libx11", "libx11"],
+    },
+    Library { soname: "libxcb.so.1", when: When::X11, packages: ["libxcb1", "libxcb", "libxcb1", "libxcb", "libxcb"] },
+    Library {
+        soname: "libXcursor.so.1",
+        when: When::X11,
+        packages: ["libxcursor1", "libXcursor", "libXcursor1", "libxcursor", "libxcursor"],
+    },
+    Library { soname: "libXi.so.6", when: When::X11, packages: ["libxi6", "libXi", "libXi6", "libxi", "libxi"] },
+    Library {
+        soname: "libXrandr.so.2",
+        when: When::X11,
+        packages: ["libxrandr2", "libXrandr", "libXrandr2", "libxrandr", "libxrandr"],
+    },
+];
+
+impl Library {
+    fn package(&self, manager: Manager) -> &'static str {
+        self.packages[manager as usize]
+    }
+
+    /// Whether the library is installed, looked for where the dynamic linker looks.
+    fn present(&self) -> bool {
+        let mut dirs: Vec<std::path::PathBuf> =
+            std::env::var_os("LD_LIBRARY_PATH").iter().flat_map(std::env::split_paths).collect();
+        for root in ["/usr/lib", "/lib", "/usr/lib64", "/lib64", "/usr/local/lib"] {
+            dirs.push(root.into());
+            // Debian and Ubuntu keep them in a folder named for the machine, like x86_64-linux-gnu.
+            if let Ok(entries) = std::fs::read_dir(root) {
+                dirs.extend(
+                    entries
+                        .flatten()
+                        .map(|e| e.path())
+                        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.contains("-linux-gnu"))),
+                );
+            }
+        }
+        dirs.iter().any(|dir| dir.join(self.soname).exists())
+    }
+}
+
+/// `packaging/dependencies.md`, which says the same as the tables above for whoever packages
+/// Queijo; a test keeps the two equal.
+#[cfg(test)]
+fn dependencies_markdown() -> String {
+    let columns = "Debian, Ubuntu (apt) | Fedora, RHEL (dnf) | openSUSE (zypper) | Arch (pacman) | Alpine (apk)";
+    let mut out = String::from(
+        "# Dependencies, by distribution\n\n\
+         Generated from `src/doctor.rs` (`QUEIJO_UPDATE_DOCS=1 cargo test dependencies_table` rewrites it), which is also\n\
+         what `queijo --doctor` checks and what the packages declare. The Alpine names are from memory: its\n\
+         musl C library can't run the release binary.\n\n\
+         ## Libraries\n\n\
+         Opened when the editor starts, so no package manager finds them as dependencies; every package lists them.\n\n",
+    );
+    out.push_str(&format!("| Library | Needed on | {columns} |\n|---|---|---|---|---|---|---|\n"));
+    for lib in LIBRARIES {
+        out.push_str(&format!(
+            "| `{}` | {} | {} |\n",
+            lib.soname,
+            lib.when.describe(),
+            lib.packages.map(|p| format!("`{p}`")).join(" | ")
+        ));
+    }
+    out.push_str("\n## Programs\n\n\"Required\" ones are what the feature needs to work at all; the others are fallbacks or extras.\n\n");
+    out.push_str(&format!(
+        "| Program | Used for | Needed on | Required | {columns} |\n|---|---|---|---|---|---|---|---|---|\n"
+    ));
+    for tool in TOOLS {
+        out.push_str(&format!(
+            "| `{}` | {} | {} | {} | {} |\n",
+            tool.program,
+            tool.purpose,
+            tool.when.describe(),
+            if tool.required { "yes" } else { "no" },
+            tool.packages.map(|p| format!("`{p}`")).join(" | ")
+        ));
+    }
+    out
+}
 
 impl Tool {
     fn package(&self, manager: Manager) -> &'static str {
@@ -356,6 +498,21 @@ fn report(env: &Env) -> String {
     line(format!("  Recording icon:   {tray}"));
 
     line(String::new());
+    line("Libraries (opened when the editor starts):".into());
+    let mut missing_libs = Vec::new();
+    for lib in LIBRARIES.iter().filter(|l| l.when.applies(env)) {
+        let found = lib.present();
+        line(format!("  {:<24}{}", lib.soname, if found { "ok" } else { "MISSING" }));
+        if !found {
+            missing_libs.push(lib);
+        }
+    }
+    if let (false, Some(manager)) = (missing_libs.is_empty(), manager) {
+        let packages: Vec<&str> = missing_libs.iter().map(|l| l.package(manager)).collect();
+        line(format!("To install the missing libraries:  {}", manager.install(&packages)));
+    }
+
+    line(String::new());
     line("Tools:".into());
     let mut missing = Vec::new();
     for tool in TOOLS.iter().filter(|t| t.when.applies(env)) {
@@ -466,5 +623,67 @@ mod tests {
         assert!(text.contains("Desktop:  LXQt"), "{text}");
         assert!(text.contains("1. GNOME Shell (no display)"), "{text}");
         assert!(text.contains("ffmpeg"), "{text}");
+    }
+
+    #[test]
+    fn every_library_has_a_package_for_every_manager() {
+        for lib in LIBRARIES {
+            for manager in [Manager::Apt, Manager::Dnf, Manager::Zypper, Manager::Pacman, Manager::Apk] {
+                assert!(!lib.package(manager).is_empty(), "{} on {}", lib.soname, manager.name());
+            }
+        }
+    }
+
+    /// `packaging/dependencies.md` says what the code says. `QUEIJO_UPDATE_DOCS=1` rewrites it.
+    #[test]
+    fn dependencies_table_is_up_to_date() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packaging/dependencies.md");
+        let wanted = dependencies_markdown();
+        if std::env::var_os("QUEIJO_UPDATE_DOCS").is_some() {
+            std::fs::write(&path, &wanted).unwrap();
+        }
+        let have = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            have == wanted,
+            "packaging/dependencies.md is out of date: run QUEIJO_UPDATE_DOCS=1 cargo test dependencies_table"
+        );
+    }
+
+    #[test]
+    fn finds_a_library_that_is_there_and_not_one_that_is_not() {
+        let libc = Library { soname: "libc.so.6", when: When::Always, packages: [""; 5] };
+        assert!(libc.present(), "libc is on every machine this runs on");
+        let nope = Library { soname: "libqueijo-nothing.so.9", when: When::Always, packages: [""; 5] };
+        assert!(!nope.present());
+    }
+
+    /// The packages say the same as the table: every library is named in the `.deb`'s
+    /// dependencies (by its apt package), the `.rpm`'s requirements (by its soname) and the
+    /// PKGBUILD's (by its pacman package), and every program a package needs to work at all
+    /// is one of its dependencies.
+    #[test]
+    fn the_packages_declare_what_the_table_says() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let cargo = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        let pkgbuild = std::fs::read_to_string(root.join("packaging/aur/PKGBUILD.in")).unwrap();
+        let deb = &cargo[cargo.find("depends = \"\"\"").unwrap()..];
+        let deb = &deb[..deb.find("\"\"\"\n").unwrap() + 3];
+        let (rpm_requires, _) = cargo.split_once("[package.metadata.generate-rpm.recommends]").unwrap();
+        let rpm_requires = &rpm_requires[rpm_requires.find("[package.metadata.generate-rpm.requires]").unwrap()..];
+
+        for lib in LIBRARIES {
+            let apt = lib.package(Manager::Apt);
+            assert!(deb.split([',', ' ', '\\', '"', '\n']).any(|w| w == apt), "the .deb does not depend on {apt}");
+            assert!(
+                rpm_requires.contains(&format!("\"{}()(64bit)\"", lib.soname)),
+                "the .rpm does not require {}",
+                lib.soname
+            );
+            let arch = lib.package(Manager::Pacman);
+            assert!(pkgbuild.contains(&format!("'{arch}'")), "the PKGBUILD does not depend on {arch}");
+        }
+        // ffmpeg and a clipboard tool are what the .deb and the PKGBUILD insist on.
+        assert!(deb.contains("ffmpeg") && deb.contains("wl-clipboard | xclip"));
+        assert!(pkgbuild.contains("'ffmpeg'") && pkgbuild.contains("'wl-clipboard'"));
     }
 }

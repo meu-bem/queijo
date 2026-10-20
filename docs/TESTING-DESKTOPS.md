@@ -140,6 +140,15 @@ recording and goes when it stops, that the tooltip's time moves, and that the cl
 stop the recording. Where there is no tray, or no host for it, Queijo says so on stderr and records
 without an icon.
 
+## Packages
+
+The packages were installed, and `queijo --doctor` run, in containers of Debian 12, Ubuntu 22.04 and
+24.04, Fedora, Rocky Linux 8 (glibc 2.28, where the previous build did not start at all), openSUSE
+Tumbleweed and Arch Linux (through `makepkg`), on x86_64. A container has no display, so this
+proves the installation and that no library the binary is linked to is missing, not that the editor
+opens there. The aarch64 packages have never been run, only built. Alpine is not supported (its musl
+C library can't run the binary) and its package names in `packaging/dependencies.md` are from memory.
+
 ## What to try in each environment
 
 1. **Overlay**: the screen dims, the live screen shows through, and the selection

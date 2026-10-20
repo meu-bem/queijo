@@ -79,6 +79,12 @@ sleep 4
 listing=$("$bin" --list-windows)
 echo "$listing"
 kill "$editor" 2>/dev/null || true
+wait "$editor" 2>/dev/null || true
+# The window must be gone from the screen before the editor takes its picture of it.
+for _ in $(seq 1 40); do
+    [ "$(grim - | red)" = 1 ] && break
+    sleep 0.25
+done
 case "$listing" in
     "Sway (1 windows, topmost first)"*"queijo-settings  Queijo Settings"*) ;;
     *) echo "FAIL: the window list is not Sway's one window"; exit 1 ;;

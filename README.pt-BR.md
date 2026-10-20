@@ -55,18 +55,42 @@ a saída dele ao relatar um problema.
 
 ## Instalação
 
-Baixe os arquivos na página de **Releases**.
+Baixe os arquivos na página de **Releases**. Eles são feitos para x86_64 e aarch64 contra a
+glibc 2.28, então rodam em distribuições tão antigas quanto Debian 10, RHEL 8 e derivadas, e
+Ubuntu 20.04. Cada pacote foi instalado e executado (`queijo --doctor`) no Debian 12, Ubuntu
+22.04 e 24.04, Fedora, Rocky Linux 8, openSUSE Tumbleweed e Arch Linux, em x86_64. Os de aarch64
+são feitos do mesmo jeito, mas nunca foram executados.
 
-### Ubuntu 22.04 (`.deb`)
+Seja qual for a instalação, `queijo --doctor` diz o que o Queijo encontrou no seu sistema, o que
+vai usar e o que falta, com o comando para instalar na sua distribuição.
+[packaging/dependencies.md](packaging/dependencies.md) lista os nomes dos pacotes de cada uma.
+
+### Ubuntu, Debian e derivadas (`.deb`)
 
 ```sh
 sudo apt install ./queijo_<versão>-1_amd64.deb
 ```
 
-O `apt` também instala o que o Queijo precisa (`ffmpeg`, `wl-clipboard`
-e algumas bibliotecas).
+O `apt` também instala o que o Queijo precisa (`ffmpeg`, uma ferramenta de área de
+transferência e algumas bibliotecas).
 
-### Outras instalações (`.tar.gz`)
+### Fedora, openSUSE, RHEL e derivadas (`.rpm`)
+
+```sh
+sudo dnf install ./queijo-<versão>-1.x86_64.rpm          # Fedora, RHEL, Rocky, Alma
+sudo zypper install --allow-unsigned-rpm ./queijo-<versão>-1.x86_64.rpm   # openSUSE
+```
+
+O `ffmpeg` e a ferramenta de área de transferência são recomendados, não obrigatórios, porque
+o RHEL e as derivadas não trazem nenhum dos dois nos repositórios base (estão no EPEL e no RPM
+Fusion): instale você mesmo o `ffmpeg` e o `wl-clipboard` (Wayland) ou o `xclip` (X11).
+
+### Arch Linux (AUR)
+
+Cada release inclui um `PKGBUILD` e um `.SRCINFO` para o pacote `queijo-bin` do AUR. Ele ainda
+não foi publicado no AUR; até lá, monte você mesmo com `makepkg -si` numa pasta com o `PKGBUILD`.
+
+### Qualquer outra distribuição (`.tar.gz`)
 
 ```sh
 tar xzf queijo-<versão>-x86_64-linux.tar.gz
@@ -76,9 +100,10 @@ sudo PREFIX=/usr/local ./install.sh   # para todos
 ./install.sh --uninstall              # remove de novo
 ```
 
-É preciso ter `ffmpeg` e `wl-clipboard` (Wayland) instalados. O `gifsicle` deixa
-os GIFs um pouco menores, e o `zenity` (ou `kdialog`) e o `libnotify-bin` só são
-usados quando o seletor de pastas e as notificações do próprio desktop não existem.
+É preciso ter `ffmpeg` e uma ferramenta de área de transferência (`wl-clipboard` no Wayland,
+`xclip` no X11) instalados, e as bibliotecas que o `queijo --doctor` lista. O `gifsicle` deixa os
+GIFs um pouco menores, e o `zenity` (ou `kdialog`) e o `libnotify-bin` só são usados quando o
+seletor de pastas e as notificações do próprio desktop não existem.
 
 ### Extensão do GNOME Shell (opcional)
 

@@ -45,11 +45,14 @@ folders, file names and language (English and Portuguese). \
 A bundled GNOME Shell extension adds a window picker and a recording \
 indicator in the top bar (one for GNOME 42 to 44 and one for GNOME 45 and \
 later); enable the right one with `queijo --enable-extension`."""
-# The graphics libraries are opened at run time, so they are not found automatically.
-depends = """$auto, gnome-shell (>= 42), libglib2.0-bin, wl-clipboard, ffmpeg, \
+# The graphics libraries are opened at run time, so they are not found automatically. They,
+# and the programs, are listed in src/doctor.rs and packaging/dependencies.md.
+# libc6 is named because `$auto` cannot read a binary built for another architecture.
+depends = """$auto, libc6 (>= 2.28), ffmpeg, libglib2.0-bin, wl-clipboard | xclip, \
 libwayland-client0, libxkbcommon0, libxkbcommon-x11-0, libegl1, libgl1, libx11-6, libxcb1, \
 libxcursor1, libxi6, libxrandr2"""
-recommends = "gifsicle, zenity, libnotify-bin, wf-recorder, gstreamer1.0-tools, gstreamer1.0-pipewire, gstreamer1.0-plugins-good, gstreamer1.0-libav, xclip, gnome-screenshot, x11-xserver-utils"
+recommends = "gifsicle, zenity, libnotify-bin, gstreamer1.0-tools, gstreamer1.0-pipewire, gstreamer1.0-plugins-good, gstreamer1.0-libav"
+suggests = "wf-recorder, grim, kde-spectacle, gnome-screenshot"
 assets = [
     ["target/release/queijo", "usr/bin/", "755"],
     ["packaging/queijo.desktop", "usr/share/applications/", "644"],
@@ -68,6 +71,65 @@ assets = [
     ["gnome-extension/esm/queijo-gnome45@queijo.app/metadata.json", "usr/share/gnome-shell/extensions/queijo-gnome45@queijo.app/", "644"],
     ["README.md", "usr/share/doc/queijo/", "644"],
 ]
+
+[package.metadata.generate-rpm]
+name = "queijo"
+summary = "Screenshot, screencast and GIF tool for Linux"
+license = "MIT"
+url = "https://github.com/meu-bem/queijo"
+assets = [
+    { source = "target/release/queijo", dest = "/usr/bin/queijo", mode = "755" },
+    { source = "packaging/queijo.desktop", dest = "/usr/share/applications/queijo.desktop", mode = "644" },
+    { source = "packaging/queijo-settings.desktop", dest = "/usr/share/applications/queijo-settings.desktop", mode = "644" },
+    { source = "assets/icons/16x16/queijo.png", dest = "/usr/share/icons/hicolor/16x16/apps/queijo.png", mode = "644" },
+    { source = "assets/icons/24x24/queijo.png", dest = "/usr/share/icons/hicolor/24x24/apps/queijo.png", mode = "644" },
+    { source = "assets/icons/32x32/queijo.png", dest = "/usr/share/icons/hicolor/32x32/apps/queijo.png", mode = "644" },
+    { source = "assets/icons/48x48/queijo.png", dest = "/usr/share/icons/hicolor/48x48/apps/queijo.png", mode = "644" },
+    { source = "assets/icons/64x64/queijo.png", dest = "/usr/share/icons/hicolor/64x64/apps/queijo.png", mode = "644" },
+    { source = "assets/icons/128x128/queijo.png", dest = "/usr/share/icons/hicolor/128x128/apps/queijo.png", mode = "644" },
+    { source = "assets/icons/256x256/queijo.png", dest = "/usr/share/icons/hicolor/256x256/apps/queijo.png", mode = "644" },
+    { source = "assets/icons/512x512/queijo.png", dest = "/usr/share/icons/hicolor/512x512/apps/queijo.png", mode = "644" },
+    { source = "gnome-extension/queijo@queijo.app/extension.js", dest = "/usr/share/gnome-shell/extensions/queijo@queijo.app/extension.js", mode = "644" },
+    { source = "gnome-extension/queijo@queijo.app/metadata.json", dest = "/usr/share/gnome-shell/extensions/queijo@queijo.app/metadata.json", mode = "644" },
+    { source = "gnome-extension/esm/queijo-gnome45@queijo.app/extension.js", dest = "/usr/share/gnome-shell/extensions/queijo-gnome45@queijo.app/extension.js", mode = "644" },
+    { source = "gnome-extension/esm/queijo-gnome45@queijo.app/metadata.json", dest = "/usr/share/gnome-shell/extensions/queijo-gnome45@queijo.app/metadata.json", mode = "644" },
+    { source = "README.md", dest = "/usr/share/doc/queijo/README.md", mode = "644", doc = true },
+    { source = "LICENSE", dest = "/usr/share/licenses/queijo/LICENSE", mode = "644", license = true },
+]
+
+# The libraries are opened at run time, so they are named by their soname, which Fedora and
+# openSUSE both provide. Programs whose package has another name on each are rich dependencies.
+# ffmpeg and the clipboard tools are only recommended: RHEL and its clones carry neither in
+# their base repositories (they are in EPEL / RPM Fusion), and Queijo still saves pictures without them.
+[package.metadata.generate-rpm.requires]
+"libwayland-client.so.0()(64bit)" = ""
+"libxkbcommon.so.0()(64bit)" = ""
+"libxkbcommon-x11.so.0()(64bit)" = ""
+"libEGL.so.1()(64bit)" = ""
+"libGL.so.1()(64bit)" = ""
+"libX11.so.6()(64bit)" = ""
+"libxcb.so.1()(64bit)" = ""
+"libXcursor.so.1()(64bit)" = ""
+"libXi.so.6()(64bit)" = ""
+"libXrandr.so.2()(64bit)" = ""
+
+[package.metadata.generate-rpm.recommends]
+"(ffmpeg-free or ffmpeg)" = ""
+"(wl-clipboard or xclip)" = ""
+"(glib2 or glib2-tools)" = ""
+gifsicle = ""
+zenity = ""
+"(libnotify or libnotify-tools)" = ""
+"(gstreamer1 or gstreamer-utils)" = ""
+"(pipewire-gstreamer or gstreamer-plugin-pipewire)" = ""
+"(gstreamer1-plugins-good or gstreamer-plugins-good)" = ""
+"(gstreamer1-plugin-libav or gstreamer-plugins-libav)" = ""
+
+[package.metadata.generate-rpm.suggests]
+wf-recorder = ""
+grim = ""
+spectacle = ""
+gnome-screenshot = ""
 
 [profile.release]
 opt-level = 3

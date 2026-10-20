@@ -41,16 +41,20 @@ When `main` is updated, the **Release** workflow runs the checks again and then,
 only if `v<version>` doesn't exist yet:
 
 - builds the packages (`scripts/build-packages.sh`),
+- installs them in containers of four distributions and runs them (`scripts/distro-test.sh`),
+  so nothing is published that did not install where it is meant to,
 - creates the tag `v<version>` on that commit,
 - publishes the release with the notes from `CHANGELOG.md` and these files:
 
 | File | What it is |
 | --- | --- |
-| `queijo_<version>-1_amd64.deb` | package for Ubuntu 22.04 (installs the extension too) |
-| `queijo-<version>-x86_64-linux.tar.gz` | the binary, launchers, icons and extension with `install.sh` |
+| `queijo_<version>-1_<amd64\|arm64>.deb` | package for Debian, Ubuntu and their relatives |
+| `queijo-<version>-1.<x86_64\|aarch64>.rpm` | package for Fedora, openSUSE, RHEL and their relatives |
+| `queijo-<version>-<x86_64\|aarch64>-linux.tar.gz` | the binary, launchers, icons and extensions with `install.sh`, for any distribution |
 | `queijo-gnome-extension-<version>-gnome42.zip` | the GNOME Shell extension for GNOME 42 to 44, alone |
 | `queijo-gnome-extension-<version>-gnome45.zip` | the one for GNOME 45 and later, alone |
-| `SHA256SUMS` | checksums of the three files above |
+| `PKGBUILD`, `.SRCINFO` | for the AUR package `queijo-bin` (`scripts/aur.sh`); publishing them there is a manual step |
+| `SHA256SUMS` | checksums of the files above |
 
 If the version was already released, the workflow ends with a notice and publishes
 nothing: merging documentation or fixes to `main` without a version bump is safe.
@@ -61,19 +65,33 @@ The workflows use a pinned toolchain (`RUST_VERSION` in `ci.yml` and `release.ym
 so a new Rust release, with its new lints, can't turn CI red on its own. Raise it
 on purpose, in both files, after running the checks below with that version.
 
-## Supported environments
+## What the packages promise
 
-Packages are built, and tested, only for what has been validated: **Ubuntu 22.04
-(GNOME 42, Wayland), x86_64**. The workflows run on `ubuntu-22.04` so the binary
-doesn't need a newer C library. When another environment is validated, add its
-package to `scripts/build-packages.sh` and the table above, and say so in the
-README's Compatibility section.
+The binary is built with zig as the linker (`cargo zigbuild`) against **glibc 2.28**, and
+`scripts/build-packages.sh` stops if it needs a newer one. That is what makes one build run on
+Debian 10, RHEL 8 and its clones, Ubuntu 20.04 and everything newer, instead of only on the
+distribution it was built on. The graphics libraries are opened at run time and not linked, so
+glibc is all that limits how old a system can be.
+
+The packages declare the libraries by hand, because no package manager can see them. The names
+for every distribution are one table in `src/doctor.rs`, which `queijo --doctor` checks,
+`packaging/dependencies.md` shows (a test keeps the file equal to it: `QUEIJO_UPDATE_DOCS=1 cargo
+test dependencies_table` rewrites it) and a test compares with what the `.deb`, the `.rpm` and the
+`PKGBUILD` declare. A new library or program goes in that table first.
+
+What has actually been run: the x86_64 packages, installed on Debian 12, Ubuntu 22.04 and 24.04,
+Fedora, Rocky Linux 8, openSUSE Tumbleweed and Arch Linux (CI's `distros` job; the same script runs
+locally with docker). The aarch64 ones are cross-built the same way and nothing has run them.
+Which desktops work is a separate question, answered in `docs/TESTING-DESKTOPS.md`.
 
 ## Building the packages locally
 
 ```sh
-cargo install cargo-deb --locked   # once
-scripts/build-packages.sh          # writes dist/
+pip install ziglang                     # zig, the linker (or any zig on the PATH)
+cargo install cargo-zigbuild cargo-deb cargo-generate-rpm --locked   # once
+rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu  # once
+QUEIJO_ARCHES=x86_64 scripts/build-packages.sh   # writes dist/ (leave the variable out for both)
+scripts/distro-test.sh debian:12                 # installs dist/'s package in a container and runs it
 ```
 
 Handy checks, the same ones CI runs:

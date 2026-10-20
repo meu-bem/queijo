@@ -48,4 +48,6 @@ done
 refresh_caches
 
 echo "Queijo was installed in $prefix"
-echo "Optional: queijo --enable-extension   (then log out and back in)"
+echo "Next: run   $prefix/bin/queijo --doctor   to see which libraries and programs this system still needs,"
+echo "with the command to install them (packaging/dependencies.md lists them for every distribution)."
+echo "Optional, on GNOME: queijo --enable-extension   (then log out and back in)"

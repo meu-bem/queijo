@@ -52,17 +52,42 @@ include its output when you report a problem.
 
 ## Install
 
-Download the files from the **Releases** page.
+Download the files from the **Releases** page. They are built for x86_64 and aarch64 against
+glibc 2.28, so they run on distributions as old as Debian 10, RHEL 8 and its clones, and Ubuntu
+20.04. Each package was installed and run (`queijo --doctor`) on Debian 12, Ubuntu 22.04 and
+24.04, Fedora, Rocky Linux 8, openSUSE Tumbleweed and Arch Linux, on x86_64. The aarch64 ones
+are built the same way but have never been run.
 
-### Ubuntu 22.04 (`.deb`)
+Whatever you install, `queijo --doctor` says what Queijo found on your system, what it will use
+and what is missing, with the command to install it for your distribution.
+[packaging/dependencies.md](packaging/dependencies.md) lists the package names for every one.
+
+### Ubuntu, Debian and relatives (`.deb`)
 
 ```sh
 sudo apt install ./queijo_<version>-1_amd64.deb
 ```
 
-`apt` also installs what Queijo needs (`ffmpeg`, `wl-clipboard` and a few libraries).
+`apt` also installs what Queijo needs (`ffmpeg`, a clipboard tool and a few libraries).
 
-### Any other install (`.tar.gz`)
+### Fedora, openSUSE, RHEL and relatives (`.rpm`)
+
+```sh
+sudo dnf install ./queijo-<version>-1.x86_64.rpm          # Fedora, RHEL, Rocky, Alma
+sudo zypper install --allow-unsigned-rpm ./queijo-<version>-1.x86_64.rpm   # openSUSE
+```
+
+`ffmpeg` and the clipboard tool are recommended, not required, because RHEL and its clones
+carry neither in their base repositories (they are in EPEL and RPM Fusion): install `ffmpeg`
+and `wl-clipboard` (Wayland) or `xclip` (X11) yourself there.
+
+### Arch Linux (AUR)
+
+Each release includes a `PKGBUILD` and `.SRCINFO` for the AUR package `queijo-bin`. It is
+not published to the AUR yet; until it is, build it yourself with `makepkg -si` in a folder
+with the `PKGBUILD`.
+
+### Any other distribution (`.tar.gz`)
 
 ```sh
 tar xzf queijo-<version>-x86_64-linux.tar.gz
@@ -72,9 +97,10 @@ sudo PREFIX=/usr/local ./install.sh   # for everyone
 ./install.sh --uninstall              # removes it again
 ```
 
-You need `ffmpeg` and `wl-clipboard` (Wayland) installed yourself. `gifsicle`
-makes GIFs a little smaller, and `zenity` (or `kdialog`) and `libnotify-bin` are
-only used when the desktop's own folder chooser and notifications are not there.
+You need `ffmpeg` and a clipboard tool (`wl-clipboard` on Wayland, `xclip` on X11) installed
+yourself, and the libraries `queijo --doctor` lists. `gifsicle` makes GIFs a little smaller, and
+`zenity` (or `kdialog`) and `libnotify-bin` are only used when the desktop's own folder chooser
+and notifications are not there.
 
 ### GNOME Shell extension (optional)
 
