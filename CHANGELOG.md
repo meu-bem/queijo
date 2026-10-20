@@ -7,6 +7,9 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Changed
+- When no clipboard tool is installed, the error names the one to install for
+  your session (`wl-clipboard` on Wayland, `xclip` on X11) instead of an
+  operating system error.
 - The settings ask the desktop's own folder chooser (through the portal) before
   trying `zenity` or `kdialog`, so no extra program is needed to pick a folder.
 - Notifications are sent straight over D-Bus, so they work without

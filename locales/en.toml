@@ -83,7 +83,7 @@ gif_copied = "copied to clipboard"
 screencast_saved = "Screencast saved"
 
 [error]
-no_clipboard = "no clipboard tool found (install wl-clipboard)"
+no_clipboard = "no clipboard tool found (install {package})"
 shell_refused = "GNOME Shell refused to start recording"
 no_ffmpeg = "ffmpeg: {error} (install ffmpeg)"
 open_settings = "Could not open the settings: {error}"

@@ -81,7 +81,7 @@ gif_copied = "copiado para a área de transferência"
 screencast_saved = "Gravação salva"
 
 [error]
-no_clipboard = "nenhuma ferramenta de área de transferência encontrada (instale o wl-clipboard)"
+no_clipboard = "nenhuma ferramenta de área de transferência encontrada (instale o {package})"
 shell_refused = "O GNOME Shell recusou iniciar a gravação"
 no_ffmpeg = "ffmpeg: {error} (instale o ffmpeg)"
 open_settings = "Não foi possível abrir as configurações: {error}"
