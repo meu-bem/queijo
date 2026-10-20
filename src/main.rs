@@ -10,6 +10,7 @@ mod icon;
 mod monitors;
 mod output;
 mod paint;
+mod portal;
 mod record;
 mod settings;
 mod shell_ext;

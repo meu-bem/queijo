@@ -7,6 +7,8 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Changed
+- The settings ask the desktop's own folder chooser (through the portal) before
+  trying `zenity` or `kdialog`, so no extra program is needed to pick a folder.
 - Notifications are sent straight over D-Bus, so they work without
   `notify-send`. It stays as a fallback and is now recommended, not required.
 

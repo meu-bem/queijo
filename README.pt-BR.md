@@ -57,7 +57,7 @@ Baixe os arquivos na página de **Releases**.
 sudo apt install ./queijo_<versão>-1_amd64.deb
 ```
 
-O `apt` também instala o que o Queijo precisa (`ffmpeg`, `wl-clipboard`, `zenity`
+O `apt` também instala o que o Queijo precisa (`ffmpeg`, `wl-clipboard`
 e algumas bibliotecas).
 
 ### Outras instalações (`.tar.gz`)
@@ -70,8 +70,9 @@ sudo PREFIX=/usr/local ./install.sh   # para todos
 ./install.sh --uninstall              # remove de novo
 ```
 
-É preciso ter `ffmpeg`, `wl-clipboard` (Wayland), `libnotify-bin` e `zenity`
-instalados. O `gifsicle` é opcional e deixa os GIFs um pouco menores.
+É preciso ter `ffmpeg` e `wl-clipboard` (Wayland) instalados. O `gifsicle` deixa
+os GIFs um pouco menores, e o `zenity` (ou `kdialog`) e o `libnotify-bin` só são
+usados quando o seletor de pastas e as notificações do próprio desktop não existem.
 
 ### Extensão do GNOME Shell (opcional)
 

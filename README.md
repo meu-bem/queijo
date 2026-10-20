@@ -54,8 +54,7 @@ Download the files from the **Releases** page.
 sudo apt install ./queijo_<version>-1_amd64.deb
 ```
 
-`apt` also installs what Queijo needs (`ffmpeg`, `wl-clipboard`, `zenity` and a few
-libraries).
+`apt` also installs what Queijo needs (`ffmpeg`, `wl-clipboard` and a few libraries).
 
 ### Any other install (`.tar.gz`)
 
@@ -67,8 +66,9 @@ sudo PREFIX=/usr/local ./install.sh   # for everyone
 ./install.sh --uninstall              # removes it again
 ```
 
-You need `ffmpeg`, `wl-clipboard` (Wayland), `libnotify-bin` and `zenity`
-installed yourself. `gifsicle` is optional and makes GIFs a little smaller.
+You need `ffmpeg` and `wl-clipboard` (Wayland) installed yourself. `gifsicle`
+makes GIFs a little smaller, and `zenity` (or `kdialog`) and `libnotify-bin` are
+only used when the desktop's own folder chooser and notifications are not there.
 
 ### GNOME Shell extension (optional)
 

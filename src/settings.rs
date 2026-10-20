@@ -873,15 +873,33 @@ fn keycap_slot(ui: &mut Ui, key: Option<&str>, capturing: bool, now: f64) -> egu
     resp
 }
 
+/// The portal's file chooser, then `zenity`, then `kdialog`; `None` if the user
+/// cancels or nothing is available (the path can still be typed).
 fn pick_folder(start: &std::path::Path) -> Option<String> {
-    let out = std::process::Command::new("zenity")
-        .args(["--file-selection", "--directory"])
-        .arg(format!("--title={}", t("settings.choose_folder")))
-        .arg(format!("--filename={}/", start.display()))
-        .output()
-        .ok()?;
-    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (out.status.success() && !path.is_empty()).then_some(path)
+    match crate::portal::choose_folder(t("settings.choose_folder"), start) {
+        Ok(choice) => return choice,
+        Err(e) => eprintln!("queijo: no folder chooser from the portal ({e})"),
+    }
+    let title = t("settings.choose_folder");
+    let dialogs: [(&str, Vec<String>); 2] = [
+        (
+            "zenity",
+            vec![
+                "--file-selection".into(),
+                "--directory".into(),
+                format!("--title={title}"),
+                format!("--filename={}/", start.display()),
+            ],
+        ),
+        ("kdialog", vec!["--getexistingdirectory".into(), start.display().to_string(), "--title".into(), title.into()]),
+    ];
+    for (program, args) in dialogs {
+        // A dialog that runs and returns nothing was cancelled; one that can't start isn't there.
+        let Ok(out) = std::process::Command::new(program).args(args).output() else { continue };
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        return (out.status.success() && !path.is_empty()).then_some(path);
+    }
+    None
 }
 
 /// egui key → GNOME keysym name.

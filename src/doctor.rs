@@ -150,7 +150,7 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         program: "zenity",
-        purpose: "folder picker in the settings",
+        purpose: "folder picker, if the portal has none",
         when: When::Always,
         required: false,
         packages: ["zenity"; 5],
