@@ -41,6 +41,10 @@ If the overlay is black on a desktop other than GNOME, `QUEIJO_SOFTWARE_GL=1` is
 workaround, and the fix is to include that desktop in `desktop::wants_software_gl`.
 Drawing on the GPU is the untested default everywhere but GNOME on Wayland.
 
+Without a compositor (the i3 / bspwm row) the editor shows a still picture of the screen
+instead of the live one. `scripts/smoke-test.sh` checks that on a virtual display, which
+has no compositor, and CI runs it; it still has to be looked at on a real one.
+
 ## What to try in each environment
 
 1. **Overlay**: the screen dims, the live screen shows through, and the selection

@@ -30,13 +30,23 @@ pub enum Desktop {
 pub struct Env {
     pub session: Session,
     pub desktop: Desktop,
+    /// Whether a compositor lets windows be see-through. Only an X11 session can
+    /// lack one; Wayland compositors are all compositors.
+    pub compositing: bool,
 }
 
 impl Env {
     /// The environment this process runs in, worked out once.
     pub fn current() -> &'static Env {
         static CURRENT: OnceLock<Env> = OnceLock::new();
-        CURRENT.get_or_init(|| detect_from(&|name| std::env::var(name).ok().filter(|v| !v.is_empty())))
+        CURRENT.get_or_init(|| {
+            let mut env = detect_from(&|name| std::env::var(name).ok().filter(|v| !v.is_empty()));
+            if env.session == Session::X11 {
+                // If the server can't be asked, assume the usual: there is one.
+                env.compositing = crate::x11::has_compositor(None).unwrap_or(true);
+            }
+            env
+        })
     }
 }
 
@@ -112,7 +122,7 @@ pub fn detect_from(var: &dyn Fn(&str) -> Option<String>) -> Env {
         .or_else(|| var("HYPRLAND_INSTANCE_SIGNATURE").map(|_| Desktop::Hyprland))
         .unwrap_or_else(|| Desktop::Other(names.into_iter().find(|n| !n.is_empty()).unwrap_or_default()));
 
-    Env { session, desktop }
+    Env { session, desktop, compositing: true }
 }
 
 /// Whether to draw with the CPU instead of the GPU. Mutter shows see-through

@@ -234,6 +234,12 @@ fn report(env: &Env) -> String {
     let distro = if release.pretty_name.is_empty() { "unknown" } else { &release.pretty_name };
     line(format!("Distro:   {distro} (package manager: {})", manager.map_or("unknown", Manager::name)));
 
+    let compositor = match (env.session, env.compositing) {
+        (Session::X11, false) => "none (the editor shows a still picture of the screen)",
+        (Session::X11, true) => "yes",
+        _ => "built into the compositor",
+    };
+    line(format!("Compositor: {compositor}"));
     let forced = std::env::var("QUEIJO_SOFTWARE_GL").ok();
     let drawing = if crate::desktop::wants_software_gl(env, forced.as_deref()) { "CPU (software)" } else { "GPU" };
     let reason = if forced.is_some() { " (QUEIJO_SOFTWARE_GL)" } else { "" };
@@ -372,8 +378,8 @@ mod tests {
 
     #[test]
     fn only_asks_for_the_clipboard_tool_of_the_session() {
-        let x11 = Env { session: Session::X11, desktop: Desktop::Xfce };
-        let wayland = Env { session: Session::Wayland, desktop: Desktop::Sway };
+        let x11 = Env { session: Session::X11, desktop: Desktop::Xfce, compositing: true };
+        let wayland = Env { session: Session::Wayland, desktop: Desktop::Sway, compositing: true };
         let wanted = |env: &Env| TOOLS.iter().filter(|t| t.when.applies(env)).map(|t| t.program).collect::<Vec<_>>();
         assert!(wanted(&x11).contains(&"xclip") && !wanted(&x11).contains(&"wl-copy"));
         assert!(wanted(&wayland).contains(&"wl-copy") && !wanted(&wayland).contains(&"xclip"));
@@ -381,7 +387,8 @@ mod tests {
 
     #[test]
     fn the_report_names_the_environment() {
-        let text = report(&Env { session: Session::Headless, desktop: Desktop::Other("LXQt".into()) });
+        let text =
+            report(&Env { session: Session::Headless, desktop: Desktop::Other("LXQt".into()), compositing: true });
         assert!(text.starts_with(&format!("queijo {}\n", env!("CARGO_PKG_VERSION"))), "{text}");
         assert!(text.contains("Desktop:  LXQt"), "{text}");
         assert!(text.contains("1. GNOME Shell (no display)"), "{text}");

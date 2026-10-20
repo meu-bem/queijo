@@ -6,6 +6,11 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- On an X11 screen with no compositor (i3, bspwm, some Xfce setups), the editor
+  no longer opens black: it shows a still picture of the screen, dimmed, as
+  version 0.1.0 did. `queijo --doctor` says whether a compositor was found.
+
 ### Changed
 - Drawing on the CPU, which the editor needs on GNOME with Wayland, is no longer
   forced on other desktops. `QUEIJO_SOFTWARE_GL=1` or `0` overrides the choice.

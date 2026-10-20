@@ -35,7 +35,7 @@ jobs:
         # ffmpeg and the GNOME schemas let the tests that use them run for real.
         run: |
           sudo apt-get update
-          sudo apt-get install -y dbus ffmpeg gifsicle gnome-settings-daemon-common gnome-shell-common libglib2.0-bin
+          sudo apt-get install -y dbus xvfb ffmpeg gifsicle gnome-settings-daemon-common gnome-shell-common libglib2.0-bin
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -50,6 +50,7 @@ jobs:
           QUEIJO_REQUIRE_FFMPEG: "1"
           QUEIJO_REQUIRE_GSETTINGS: "1"
           QUEIJO_REQUIRE_DBUS: "1"
+          QUEIJO_REQUIRE_XVFB: "1"
         run: cargo test --locked
 
   files:
@@ -92,13 +93,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 \
-            imagemagick bc x11-xserver-utils
+            imagemagick bc x11-xserver-utils gnome-screenshot
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --locked --release
-      - name: Settings window, in English and Portuguese
+      - name: Settings window, and the editor without a compositor
+        env:
+          QUEIJO_REQUIRE_FROZEN: "1"
         run: xvfb-run -a -s "-screen 0 1280x800x24" scripts/smoke-test.sh target/release/queijo
 
   package:

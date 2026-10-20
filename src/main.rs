@@ -15,6 +15,7 @@ mod record;
 mod settings;
 mod shell_ext;
 mod shortcut;
+mod x11;
 
 use std::io::Write;
 use std::os::linux::net::SocketAddrExt;
@@ -138,6 +139,9 @@ fn main() {
         }
     };
 
+    // Without a compositor our windows can't be see-through, so they show a
+    // still picture of the screen instead, and it must be taken before they exist.
+    let frozen = !desktop::Env::current().compositing;
     let (capture_job, desktop_rect) = if monitors.is_empty() {
         // Nothing to size the windows by but the picture itself.
         let job = start_capture(Vec::new());
@@ -163,13 +167,14 @@ fn main() {
             let pos = pick_monitor(&monitors, args.monitor.as_deref());
             monitors = vec![monitors.swap_remove(pos)];
         }
-        (start_capture(monitors.clone()), rect)
+        let job = start_capture(monitors.clone());
+        (if frozen { finished(job) } else { job }, rect)
     };
 
     let wayland = monitors::is_wayland();
     let screens: Vec<app::Screen> = monitors
         .into_iter()
-        .map(|monitor| app::Screen::new(viewport(&monitor, wayland), monitor, image::RgbaImage::new(0, 0)))
+        .map(|monitor| app::Screen::new(viewport(&monitor, wayland, !frozen), monitor, image::RgbaImage::new(0, 0)))
         .collect();
 
     let options = eframe::NativeOptions { viewport: screens[0].viewport.clone(), ..Default::default() };
@@ -184,6 +189,7 @@ fn main() {
                 (capture_job, desktop_rect),
                 window_taken,
                 shots_job,
+                frozen,
             ))))
         }),
     );
@@ -265,7 +271,14 @@ fn record_area(area: &str, cfg: &config::Config) -> ! {
     }
 }
 
-fn viewport(monitor: &monitors::Monitor, wayland: bool) -> egui::ViewportBuilder {
+/// Waits for the capture and hands its result on as a job that is already done.
+fn finished(job: app::CaptureJob) -> app::CaptureJob {
+    let captured = job.join().unwrap_or_else(|_| Err("capture panicked".into()));
+    let captured = captured.unwrap_or_else(|e| fail(&i18n::tf("error.capture", &[("error", &e)])));
+    std::thread::spawn(move || Ok(captured))
+}
+
+fn viewport(monitor: &monitors::Monitor, wayland: bool, transparent: bool) -> egui::ViewportBuilder {
     let builder = egui::ViewportBuilder::default()
         .with_title("Queijo")
         .with_app_id("queijo")
@@ -274,7 +287,7 @@ fn viewport(monitor: &monitors::Monitor, wayland: bool) -> egui::ViewportBuilder
         .with_taskbar(false)
         .with_always_on_top()
         .with_active(true)
-        .with_transparent(true)
+        .with_transparent(transparent)
         .with_inner_size([monitor.width as f32, monitor.height as f32]);
     if wayland {
         // Wayland hides absolute positions, so target the output directly.

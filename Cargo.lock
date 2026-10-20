@@ -2231,6 +2231,7 @@ dependencies = [
  "toml",
  "wayland-client",
  "wayland-protocols",
+ "x11rb",
  "zbus",
 ]
 
