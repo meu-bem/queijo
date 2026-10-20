@@ -343,7 +343,7 @@ fn report(env: &Env) -> String {
         },
     };
     line(format!("  Window picker:    {picker}"));
-    line("  Shortcuts:        GNOME keyboard settings (gsettings)".into());
+    line(format!("  Shortcuts:        {}", crate::shortcut::mechanism(env).name()));
 
     line(String::new());
     line("Tools:".into());

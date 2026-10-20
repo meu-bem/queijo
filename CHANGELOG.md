@@ -28,6 +28,10 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- Global shortcuts can be set in the settings on Cinnamon and MATE, not only GNOME. They are
+  written the way each desktop keeps its custom shortcuts, and the desktop's own screenshot
+  shortcuts that use the same key are switched off. That is written from how those desktops
+  keep them and has only been run against a stand-in for their settings.
 - GNOME 45 and later: a second GNOME Shell extension (`queijo-gnome45@queijo.app`,
   written as an ES module, which is what GNOME 45 changed) next to the one for GNOME 42 to 44.
   `queijo --enable-extension` turns on the one that fits, and the packages carry both.

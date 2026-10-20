@@ -109,6 +109,14 @@ whether `Meta.WindowActor.get_image` still exists (newer shells use `paint_to_co
 to look at on a GNOME 45 to 49: that `queijo --doctor` finds the extension after login, the
 screenshot, the window picker with its previews, and the recording indicator.
 
+Shortcuts on Cinnamon and MATE (`src/shortcut/lists.rs`) are written from how those desktops
+keep their custom shortcuts (the schema and key names, a list of `customN` names and keys held in
+a list on Cinnamon, `customN` found by trying them and an `action` key on MATE, `disabled` for a
+switched-off MATE shortcut) and run only against a map standing in for their settings. The schemas
+themselves were not available to check. Things to look at: that a shortcut set in Queijo's
+settings appears in the desktop's own keyboard settings and works, that the desktop's screenshot
+key is freed, and that removing it leaves the desktop's other shortcuts alone.
+
 ## What to try in each environment
 
 1. **Overlay**: the screen dims, the live screen shows through, and the selection
