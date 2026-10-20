@@ -28,6 +28,11 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- On Sway, Hyprland, i3, KDE Plasma and any desktop whose shortcuts Queijo can't write, the
+  Shortcuts page shows what to add by hand (`bindsym Print exec queijo` on Sway,
+  `bind = , Print, exec, queijo` on Hyprland, the commands to give a shortcut on KDE) with a
+  button that copies it. It does not edit those configuration files. KDE keeps shortcuts in
+  `kglobalshortcutsrc`, and nothing found says how to make its daemon notice a change.
 - Global shortcuts can be set in the settings on Xfce too, through `xfconf-query`. A key that
   the user already made a custom shortcut for is refused (it would replace that one); what Xfce
   ships for a key (its screenshot tool on Print) is replaced by Queijo's.

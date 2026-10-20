@@ -2,6 +2,7 @@
 //! keeps them its own way. Keys are written GTK-style (`<Primary><Shift>Print`) everywhere here.
 
 mod lists;
+pub mod manual;
 mod xfce;
 
 use std::process::Command;
@@ -114,8 +115,8 @@ pub enum Mechanism {
     Lists(&'static lists::Layout),
     /// In xfconf, which Xfce uses.
     Xfconf,
-    /// Nothing Queijo knows how to write to.
-    Unsupported,
+    /// Not written by Queijo: the settings show what to add (see `manual`).
+    Manual(manual::Kind),
 }
 
 pub fn mechanism(env: &Env) -> Mechanism {
@@ -124,7 +125,7 @@ pub fn mechanism(env: &Env) -> Mechanism {
         Desktop::Cinnamon => Mechanism::Lists(&lists::CINNAMON),
         Desktop::Mate => Mechanism::Lists(&lists::MATE),
         Desktop::Xfce => Mechanism::Xfconf,
-        _ => Mechanism::Unsupported,
+        _ => Mechanism::Manual(manual::kind(env)),
     }
 }
 
@@ -134,12 +135,12 @@ impl Mechanism {
         match self {
             Mechanism::Lists(layout) => layout.name,
             Mechanism::Xfconf => "Xfce keyboard shortcuts (xfconf)",
-            Mechanism::Unsupported => "none Queijo can write to",
+            Mechanism::Manual(_) => "none Queijo can write to (the settings show what to add by hand)",
         }
     }
 }
 
-fn mechanism_here() -> Mechanism {
+pub fn mechanism_here() -> Mechanism {
     mechanism(Env::current())
 }
 
@@ -148,7 +149,7 @@ pub fn current() -> Vec<(Action, Vec<String>)> {
     match mechanism_here() {
         Mechanism::Lists(layout) => layout.current_in(&Gsettings::default()),
         Mechanism::Xfconf => xfce::current_in(&xfce::XfconfQuery::default()),
-        Mechanism::Unsupported => Action::ALL.into_iter().map(|a| (a, Vec::new())).collect(),
+        Mechanism::Manual(_) => Action::ALL.into_iter().map(|a| (a, Vec::new())).collect(),
     }
 }
 
@@ -180,7 +181,7 @@ pub fn apply(bindings: &[(Action, Vec<String>)]) -> Result<(), String> {
             };
             xfce::apply_in(&store, &exe, bindings)
         }
-        Mechanism::Unsupported => Err("this desktop has no shortcut settings Queijo can write to".into()),
+        Mechanism::Manual(_) => Err("this desktop has no shortcut settings Queijo can write to".into()),
     }
 }
 
@@ -189,7 +190,7 @@ pub fn conflict(binding: &str) -> Option<(String, bool)> {
     match mechanism_here() {
         Mechanism::Lists(layout) => layout.conflict_in(&Gsettings::default(), binding),
         Mechanism::Xfconf => xfce::conflict_in(&xfce::XfconfQuery::default(), binding),
-        Mechanism::Unsupported => None,
+        Mechanism::Manual(_) => None,
     }
 }
 
@@ -382,5 +383,8 @@ mod tests {
         assert!(matches!(mechanism(&env(Desktop::Cinnamon)), Mechanism::Lists(l) if l.name.starts_with("Cinnamon")));
         assert!(matches!(mechanism(&env(Desktop::Mate)), Mechanism::Lists(l) if l.name.starts_with("MATE")));
         assert!(matches!(mechanism(&env(Desktop::Xfce)), Mechanism::Xfconf));
+        assert!(matches!(mechanism(&env(Desktop::Sway)), Mechanism::Manual(manual::Kind::Sway)));
+        assert!(matches!(mechanism(&env(Desktop::Kde)), Mechanism::Manual(manual::Kind::Kde)));
+        assert!(matches!(mechanism(&env(Desktop::Other(String::new()))), Mechanism::Manual(manual::Kind::Other)));
     }
 }

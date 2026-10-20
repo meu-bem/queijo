@@ -109,6 +109,14 @@ whether `Meta.WindowActor.get_image` still exists (newer shells use `paint_to_co
 to look at on a GNOME 45 to 49: that `queijo --doctor` finds the extension after login, the
 screenshot, the window picker with its previews, and the recording indicator.
 
+Shortcuts on Sway, Hyprland, i3, KDE and the rest are only shown, not written: the lines are
+checked as text against each configuration's syntax (Sway and i3 `bindsym`, Hyprland `bind =`), not
+by loading them into a compositor, and the Shortcuts page with them has not been looked at on a
+screen. For KDE, the way to register a global shortcut for a command (a `.desktop` file marked
+`X-KDE-GlobalAccel-CommandShortcut=true`, a `[services]` section in `kglobalshortcutsrc`, then a
+restart of `kglobalacceld`) was found described but its reload step was not confirmed anywhere, so
+it was not implemented.
+
 Shortcuts on Xfce (`src/shortcut/xfce.rs`) were run against the real `xfconf-query` and `xfconfd`
 (from the `xfconf` package) on a bus of their own, with the shortcuts channel filled the way Xfce
 fills it, so the property names, the listing and the quoting of commands are right. What was not

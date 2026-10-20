@@ -313,7 +313,53 @@ impl SettingsApp {
         }
     }
 
+    /// For a desktop whose shortcuts Queijo can't write: the lines to add, with a button to copy them.
+    fn manual_shortcuts(&mut self, ui: &mut Ui, kind: shortcut::manual::Kind, now: f64) {
+        use shortcut::manual::Kind;
+        let intro = match kind {
+            Kind::Sway => t("settings.manual_sway"),
+            Kind::Hyprland => t("settings.manual_hyprland"),
+            Kind::I3 => t("settings.manual_i3"),
+            Kind::Kde => t("settings.manual_kde"),
+            Kind::Other => t("settings.manual_other"),
+        };
+        hint(ui, intro);
+        let exe = std::env::current_exe()
+            .ok()
+            .filter(|p| p.is_absolute() && !p.to_string_lossy().contains("target/"))
+            .map_or_else(|| "queijo".to_string(), |p| p.to_string_lossy().into_owned());
+        let lines: Vec<String> = shortcut::manual::lines(kind, &exe).into_iter().map(|(_, l)| l).collect();
+        card(ui, |ui| {
+            for (n, (action, line)) in shortcut::manual::lines(kind, &exe).into_iter().enumerate() {
+                if n > 0 {
+                    sep(ui);
+                }
+                ui.spacing_mut().item_spacing.y = 2.0;
+                ui.label(RichText::new(action.title()).size(14.0).color(TEXT));
+                ui.add_space(4.0);
+                ui.label(RichText::new(line).monospace().size(13.0).color(TEXT_DIM));
+                ui.spacing_mut().item_spacing.y = 10.0;
+                ui.add_space(4.0);
+            }
+        });
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            if ui.button(t("settings.copy_lines")).clicked() {
+                let text = lines.join("\n") + "\n";
+                self.status = Some(match crate::output::copy_data("text/plain", text.as_bytes()) {
+                    Ok(()) => (t("settings.copied").into(), now, true),
+                    Err(e) => (tf("settings.copy_failed", &[("error", &e)]), now, false),
+                });
+            }
+            ui.label(RichText::new(t("settings.manual_note")).size(12.0).color(TEXT_DIM));
+        });
+    }
+
     fn shortcuts(&mut self, ui: &mut Ui, now: f64) {
+        if let shortcut::Mechanism::Manual(kind) = shortcut::mechanism_here() {
+            self.manual_shortcuts(ui, kind, now);
+            return;
+        }
         hint(ui, t("settings.shortcuts_hint"));
         card(ui, |ui| {
             for (n, action) in Action::ALL.into_iter().enumerate() {
