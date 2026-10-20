@@ -5,7 +5,7 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-use crate::capture::{Backend, SCREENSHOT_BACKENDS};
+use crate::capture::{screenshot_backends, Backend};
 use crate::desktop::{Desktop, Env, Session};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -203,7 +203,8 @@ fn yes_no(found: Option<bool>) -> &'static str {
 
 fn backend_line(backend: Backend, env: &Env) -> String {
     let state = match backend {
-        Backend::GnomeShell if env.session == Session::Headless => "no display",
+        Backend::GnomeShell | Backend::X11 if env.session == Session::Headless => "no display",
+        Backend::X11 => yes_no(Some(crate::x11::screenshot(None).is_ok())),
         Backend::GnomeShell => yes_no(bus_name_taken("org.gnome.Shell.Screenshot")),
         Backend::GnomeScreenshot => yes_no(Some(on_path("gnome-screenshot"))),
         Backend::Grim => yes_no(Some(on_path("grim"))),
@@ -257,7 +258,7 @@ fn report(env: &Env) -> String {
 
     line(String::new());
     line("Screenshot, tried in this order:".into());
-    for (i, backend) in SCREENSHOT_BACKENDS.iter().enumerate() {
+    for (i, backend) in screenshot_backends(env).iter().enumerate() {
         line(format!("  {}. {}", i + 1, backend_line(*backend, env)));
     }
 

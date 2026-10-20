@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use image::RgbaImage;
 
+use crate::desktop::{Desktop, Env, Session};
 use crate::monitors::Monitor;
 
 /// A connection GNOME Shell accepts screenshot requests from.
@@ -52,12 +53,17 @@ pub struct Capture {
     pub shell: Option<Shell>,
     /// The focused window, when it was asked for.
     pub window: Option<RgbaImage>,
+    /// Where the mouse pointer was, when the backend can say (the Shell can draw
+    /// it in itself, see `Shell::with_pointer`).
+    pub cursor: Option<crate::x11::Cursor>,
 }
 
 /// A way of taking the screenshot of the whole desktop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Backend {
     GnomeShell,
+    /// The X server itself, for a real X11 session.
+    X11,
     GnomeScreenshot,
     Grim,
 }
@@ -66,14 +72,21 @@ impl Backend {
     pub fn name(self) -> &'static str {
         match self {
             Backend::GnomeShell => "GNOME Shell",
+            Backend::X11 => "X11",
             Backend::GnomeScreenshot => "gnome-screenshot",
             Backend::Grim => "grim",
         }
     }
 }
 
-/// The backends in the order they are tried; the first that works wins.
-pub const SCREENSHOT_BACKENDS: [Backend; 3] = [Backend::GnomeShell, Backend::GnomeScreenshot, Backend::Grim];
+/// The backends for this desktop, in the order they are tried; the first that works wins.
+pub fn screenshot_backends(env: &Env) -> Vec<Backend> {
+    match (env.session, &env.desktop) {
+        (Session::X11, Desktop::Gnome) => vec![Backend::GnomeShell, Backend::X11, Backend::GnomeScreenshot],
+        (Session::X11, _) => vec![Backend::X11, Backend::GnomeScreenshot],
+        _ => vec![Backend::GnomeShell, Backend::GnomeScreenshot, Backend::Grim],
+    }
+}
 
 /// Like `capture`, but when `window_taken` is still false it first grabs the
 /// focused window (it has to happen before our own windows take the focus) and
@@ -83,7 +96,12 @@ pub fn capture_with_window(window_taken: &AtomicBool) -> Result<Capture, String>
     let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     let file = dir.join(format!("queijo-{}-desktop.png", std::process::id()));
 
-    let mut backends = SCREENSHOT_BACKENDS.iter().copied().peekable();
+    let chain = screenshot_backends(Env::current());
+    if !chain.contains(&Backend::GnomeShell) {
+        // Only the Shell can take the focused window's picture, and nobody else is waiting for it.
+        window_taken.store(true, Ordering::Release);
+    }
+    let mut backends = chain.into_iter().peekable();
     while let Some(backend) = backends.next() {
         match backend.capture(dir.clone(), &file, window_taken) {
             Ok(shot) => return Ok(shot),
@@ -112,7 +130,11 @@ impl Backend {
                     .ok_or_else(|| "no session bus".to_string())
                     .and_then(|shell| shell_shot(&shell.conn, "Screenshot", file, |f| (false, false, f).into()))
                     .and_then(|h| h.join().map_err(|_| "decoder panicked".to_string())?)?;
-                Ok(Capture { desktop, shell, window })
+                Ok(Capture { desktop, shell, window, cursor: None })
+            }
+            Backend::X11 => {
+                let (desktop, cursor) = crate::x11::screenshot(None)?;
+                Ok(Capture { desktop, shell: None, window: None, cursor })
             }
             Backend::GnomeScreenshot => run("gnome-screenshot", &["-f"], file).and_then(|_| tool_shot(file)),
             Backend::Grim => run("grim", &[], file).and_then(|_| tool_shot(file)),
@@ -122,7 +144,7 @@ impl Backend {
 
 /// What an external tool wrote: a picture of the desktop and nothing more.
 fn tool_shot(file: &Path) -> Result<Capture, String> {
-    Ok(Capture { desktop: load(file)?, shell: None, window: None })
+    Ok(Capture { desktop: load(file)?, shell: None, window: None, cursor: None })
 }
 
 fn load(path: &Path) -> Result<RgbaImage, String> {
@@ -328,7 +350,20 @@ mod tests {
 
     #[test]
     fn tries_the_gnome_shell_first_then_the_tools() {
-        assert_eq!(SCREENSHOT_BACKENDS, [Backend::GnomeShell, Backend::GnomeScreenshot, Backend::Grim]);
+        let wayland = Env { session: Session::Wayland, desktop: Desktop::Gnome, compositing: true };
+        assert_eq!(
+            screenshot_backends(&wayland),
+            [Backend::GnomeShell, Backend::GnomeScreenshot, Backend::Grim],
+            "GNOME on Wayland keeps the order it always had"
+        );
+    }
+
+    #[test]
+    fn asks_the_x_server_on_x11() {
+        let env = |desktop| Env { session: Session::X11, desktop, compositing: true };
+        assert_eq!(screenshot_backends(&env(Desktop::Gnome))[..2], [Backend::GnomeShell, Backend::X11]);
+        assert_eq!(screenshot_backends(&env(Desktop::Xfce))[0], Backend::X11);
+        assert!(!screenshot_backends(&env(Desktop::Xfce)).contains(&Backend::GnomeShell));
     }
 
     fn crop(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> RgbaImage {

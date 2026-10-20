@@ -212,24 +212,35 @@ fn pick_monitor(monitors: &[monitors::Monitor], wanted: Option<&str>) -> usize {
 /// monitor, where the focused window is, and the job that grabs the desktop
 /// again with the mouse pointer drawn in (see `QueijoApp::root_frame`).
 fn prepare(shot: capture::Capture, all: &[monitors::Monitor], shown: &[monitors::Monitor]) -> app::Captured {
-    let capture::Capture { desktop, shell, window } = shot;
+    let capture::Capture { desktop, shell, window, cursor } = shot;
     let window = window.and_then(|w| capture::locate_window(&desktop, &w, all));
     let pieces = capture::split(&desktop, all);
     let images = shown
         .iter()
         .map(|m| all.iter().position(|a| a.index == m.index).map(|i| pieces[i].clone()).unwrap_or_default())
         .collect();
+    let desktop = Arc::new(desktop);
     let (dimensions, all, shown) = (desktop.dimensions(), all.to_vec(), shown.to_vec());
-    let pointer_job = shell.map(|shell| -> app::PointerJob {
-        Box::new(move |grabbed| match shell.with_pointer(grabbed) {
+    let pointer_job = match (shell, cursor) {
+        (Some(shell), _) => Some(Box::new(move |grabbed: &AtomicBool| match shell.with_pointer(grabbed) {
             Some(img) if img.dimensions() == dimensions => {
                 let pieces = capture::split(&img, &all);
                 shown.iter().map(|m| all.iter().position(|a| a.index == m.index).map(|i| pieces[i].clone())).collect()
             }
             _ => vec![None; shown.len()],
-        })
-    });
-    app::Captured { desktop: Arc::new(desktop), images, window, pointer_job }
+        }) as app::PointerJob),
+        // No Shell to draw the pointer in: draw the one we were told about on a copy.
+        (None, Some(cursor)) => {
+            let desktop = desktop.clone();
+            Some(Box::new(move |grabbed: &AtomicBool| {
+                grabbed.store(true, std::sync::atomic::Ordering::Release);
+                let pieces = capture::split(&x11::with_cursor(&desktop, &cursor), &all);
+                shown.iter().map(|m| all.iter().position(|a| a.index == m.index).map(|i| pieces[i].clone())).collect()
+            }) as app::PointerJob)
+        }
+        (None, None) => None,
+    };
+    app::Captured { desktop, images, window, pointer_job }
 }
 
 /// `queijo --record x,y,w,h,pointer`, started by the editor: records until

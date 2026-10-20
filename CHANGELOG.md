@@ -25,6 +25,9 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- On X11, screenshots are taken from the X server itself, pointer included, so
+  `gnome-screenshot` is no longer needed there. GNOME on X11 still asks the
+  Shell first.
 - `queijo --doctor` prints the session, the desktop, the distribution, the
   monitors, what Queijo will use to take screenshots and which of the tools it
   needs are missing, with the command to install them.

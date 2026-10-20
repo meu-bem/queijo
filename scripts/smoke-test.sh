@@ -43,15 +43,14 @@ done
 
 # The editor on a screen with no compositor (this virtual one has none) can't be
 # see-through, so it must show a still picture of the screen, dimmed, and not black.
-# Needs gnome-screenshot (the capture) and ImageMagick (to paint and to look).
+# Needs ImageMagick (to paint and to look).
 # Set QUEIJO_REQUIRE_FROZEN=1 to make a missing tool a failure (CI does).
-if ! command -v gnome-screenshot >/dev/null 2>&1 || ! command -v display >/dev/null 2>&1 \
-    || ! command -v import >/dev/null 2>&1; then
+if ! command -v display >/dev/null 2>&1 || ! command -v import >/dev/null 2>&1; then
     if [ -n "${QUEIJO_REQUIRE_FROZEN:-}" ]; then
-        echo "FAIL: gnome-screenshot and ImageMagick are needed for the editor check"
+        echo "FAIL: ImageMagick is needed for the editor check"
         exit 1
     fi
-    echo "skipping the editor check: gnome-screenshot or ImageMagick is missing"
+    echo "skipping the editor check: ImageMagick is missing"
     exit 0
 fi
 printf 'language = "en"\n' > "$XDG_CONFIG_HOME/queijo/config.toml"
