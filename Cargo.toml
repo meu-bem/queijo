@@ -34,7 +34,7 @@ license-file = ["LICENSE", "0"]
 # Made by scripts/build-packages.sh from CHANGELOG.md.
 changelog = "target/debian-changelog"
 extended-description = """\
-Queijo freezes the screen on every monitor so you can select an area, a whole \
+Queijo dims every monitor so you can select an area, a whole \
 screen or a window, annotate it and copy or save it. It also records \
 screencasts and animated GIFs, and has a settings window for shortcuts, \
 folders, file names and language (English and Portuguese). \
