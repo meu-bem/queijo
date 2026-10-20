@@ -67,6 +67,12 @@ to_stop = "Para parar, aperte"
 again = "de novo"
 cancel = "cancelar"
 
+# O ícone da bandeja durante a gravação.
+[tray]
+title = "O Queijo está gravando"
+stop = "Parar a gravação"
+click_to_stop = "Clique para parar"
+
 [notify]
 start_failed = "Não foi possível iniciar a gravação"
 drawings_failed = "Não consegui renderizar seus desenhos, então a imagem foi salva sem eles."

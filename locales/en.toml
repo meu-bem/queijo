@@ -69,6 +69,12 @@ to_stop = "To stop, press"
 again = "again"
 cancel = "cancel"
 
+# The tray icon while recording.
+[tray]
+title = "Queijo is recording"
+stop = "Stop recording"
+click_to_stop = "Click to stop"
+
 [notify]
 start_failed = "Could not start recording"
 drawings_failed = "Couldn't render your drawings, so the image was saved without them."

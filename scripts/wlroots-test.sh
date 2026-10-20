@@ -41,7 +41,11 @@ export WAYLAND_DISPLAY=wayland-1
 SWAYSOCK=""
 for SWAYSOCK in "$runtime"/sway-ipc.*.sock; do break; done
 export SWAYSOCK
-sleep 2
+# Sway answers on its socket a little before it can be screenshot.
+for _ in $(seq 1 40); do
+    grim - > /dev/null 2>&1 && break
+    sleep 0.25
+done
 
 red() { convert png:- -format '%[fx:mean.r]' info:; }
 between() { [ "$(echo "$1 > $2 && $1 < $3" | bc -l)" = 1 ]; }
@@ -56,6 +60,7 @@ esac
 "$bin" --quick -o "$work/shots" > "$work/quick.log" 2>&1 || { echo "FAIL: --quick"; cat "$work/quick.log"; exit 1; }
 shot=""
 for shot in "$work"/shots/*.png; do break; done
+[ -f "$shot" ] || { echo "FAIL: --quick saved no picture"; cat "$work/quick.log"; exit 1; }
 size=$(identify -format '%wx%h' "$shot")
 shot_red=$(convert "$shot" -format '%[fx:mean.r]' info:)
 echo "screenshot: $size, red $shot_red"

@@ -132,6 +132,14 @@ themselves were not available to check. Things to look at: that a shortcut set i
 settings appears in the desktop's own keyboard settings and works, that the desktop's screenshot
 key is freed, and that removing it leaves the desktop's other shortcuts alone.
 
+The recording tray icon (`src/record/tray.rs`, through the `ksni` crate) was run against a
+stand-in for the StatusNotifierWatcher on a bus of its own: it registers, its properties are
+right, and a click (`Activate`) stops the recording. It has never been shown by a real tray. Things
+to look at on KDE, Xfce, Cinnamon, MATE or a bar such as waybar: that the red dot appears while
+recording and goes when it stops, that the tooltip's time moves, and that the click and the menu item
+stop the recording. Where there is no tray, or no host for it, Queijo says so on stderr and records
+without an icon.
+
 ## What to try in each environment
 
 1. **Overlay**: the screen dims, the live screen shows through, and the selection

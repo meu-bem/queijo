@@ -1,6 +1,7 @@
 mod gnome;
 mod process;
 mod screencast;
+mod tray;
 mod wlr;
 mod x11grab;
 
@@ -255,7 +256,10 @@ pub fn run(req: Request, listener: &UnixListener, cfg: &Config) -> Result<Option
             eprintln!("queijo: no top-bar indicator ({e})");
         }
     }
+    // The GNOME Shell extension, if it runs, has its own indicator; elsewhere, the tray's.
+    let tray = if crate::shell_ext::ShellExtension::connect().is_some() { None } else { tray::show(job.ended.clone()) };
     let _ = stop_rx.recv();
+    drop(tray);
     if let Some(conn) = &conn {
         let _ = conn.release_name(RECORDER_NAME);
     }

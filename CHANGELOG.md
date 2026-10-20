@@ -28,6 +28,11 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- While recording, a tray icon (a red dot, with the time in its tooltip) is shown on desktops
+  that have a system tray (KDE, Xfce, Cinnamon, MATE, waybar, GNOME with the AppIndicator
+  extension...), through the StatusNotifierItem protocol. Clicking it, or its "Stop recording"
+  item, stops the recording. Where the Queijo GNOME Shell extension runs, its own indicator is
+  used instead, so there is only one. `queijo --doctor` says which one applies.
 - On Sway, Hyprland, i3, KDE Plasma and any desktop whose shortcuts Queijo can't write, the
   Shortcuts page shows what to add by hand (`bindsym Print exec queijo` on Sway,
   `bind = , Print, exec, queijo` on Hyprland, the commands to give a shortcut on KDE) with a

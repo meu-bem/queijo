@@ -344,6 +344,16 @@ fn report(env: &Env) -> String {
     };
     line(format!("  Window picker:    {picker}"));
     line(format!("  Shortcuts:        {}", crate::shortcut::mechanism(env).name()));
+    let tray = match (
+        crate::shell_ext::ShellExtension::connect().is_some(),
+        bus_name_taken("org.kde.StatusNotifierWatcher"),
+    ) {
+        (true, _) => "the GNOME Shell extension shows the recording indicator",
+        (false, Some(true)) => "a tray icon while recording (a system tray is there)",
+        (false, Some(false)) => "no system tray found, so no indicator while recording",
+        (false, None) => "could not tell",
+    };
+    line(format!("  Recording icon:   {tray}"));
 
     line(String::new());
     line("Tools:".into());
