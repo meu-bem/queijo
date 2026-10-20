@@ -191,8 +191,10 @@ mod tests {
         uri: &'static str,
     ) -> std::thread::JoinHandle<HashMap<String, OwnedValue>> {
         let service = Builder::address(bus.address.as_str()).unwrap().name(DESTINATION).unwrap().build().unwrap();
+        // Listen before the client can call, or its call could be missed.
+        let calls = MessageIterator::from(service.clone());
         std::thread::spawn(move || {
-            for message in MessageIterator::from(service.clone()) {
+            for message in calls {
                 let message = message.unwrap();
                 if message.header().member().map(|m| m.as_str()) != Some("OpenFile") {
                     continue;
