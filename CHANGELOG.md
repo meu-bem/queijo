@@ -25,6 +25,10 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- Screenshots can also come from the desktop portal, which most desktops have,
+  as a fallback when the desktop's own way fails. If the portal has to save the
+  picture in a normal folder (GNOME does, in Pictures), the file is left there;
+  only pictures in temporary folders are deleted.
 - On X11, screenshots are taken from the X server itself, pointer included, so
   `gnome-screenshot` is no longer needed there. GNOME on X11 still asks the
   Shell first.

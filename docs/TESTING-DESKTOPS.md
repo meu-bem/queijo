@@ -45,6 +45,11 @@ Without a compositor (the i3 / bspwm row) the editor shows a still picture of th
 instead of the live one. `scripts/smoke-test.sh` checks that on a virtual display, which
 has no compositor, and CI runs it; it still has to be looked at on a real one.
 
+The Screenshot portal was tried on GNOME 42 (Ubuntu 22.04): it refused the request that
+Queijo makes (no window, no interaction) after about ten seconds, and left a picture in
+`~/Pictures`. It is only the last resort there, after the Shell. Other portals (KDE's,
+wlroots') have not been tried.
+
 ## What to try in each environment
 
 1. **Overlay**: the screen dims, the live screen shows through, and the selection

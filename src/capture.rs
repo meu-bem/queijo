@@ -64,6 +64,8 @@ pub enum Backend {
     GnomeShell,
     /// The X server itself, for a real X11 session.
     X11,
+    /// `xdg-desktop-portal`, which every modern desktop has.
+    Portal,
     GnomeScreenshot,
     Grim,
 }
@@ -73,6 +75,7 @@ impl Backend {
         match self {
             Backend::GnomeShell => "GNOME Shell",
             Backend::X11 => "X11",
+            Backend::Portal => "desktop portal",
             Backend::GnomeScreenshot => "gnome-screenshot",
             Backend::Grim => "grim",
         }
@@ -81,10 +84,14 @@ impl Backend {
 
 /// The backends for this desktop, in the order they are tried; the first that works wins.
 pub fn screenshot_backends(env: &Env) -> Vec<Backend> {
+    use Backend::*;
     match (env.session, &env.desktop) {
-        (Session::X11, Desktop::Gnome) => vec![Backend::GnomeShell, Backend::X11, Backend::GnomeScreenshot],
-        (Session::X11, _) => vec![Backend::X11, Backend::GnomeScreenshot],
-        _ => vec![Backend::GnomeShell, Backend::GnomeScreenshot, Backend::Grim],
+        (Session::X11, Desktop::Gnome) => vec![GnomeShell, X11, Portal, GnomeScreenshot],
+        (Session::X11, _) => vec![X11, Portal],
+        (Session::Wayland, Desktop::Gnome) => vec![GnomeShell, Portal, GnomeScreenshot],
+        (Session::Wayland, _) => vec![Portal, Grim],
+        // No display variables (started from somewhere odd): the GNOME Shell answers on D-Bus anyway.
+        (Session::Headless, _) => vec![GnomeShell, Portal, GnomeScreenshot, Grim],
     }
 }
 
@@ -136,10 +143,41 @@ impl Backend {
                 let (desktop, cursor) = crate::x11::screenshot(None)?;
                 Ok(Capture { desktop, shell: None, window: None, cursor })
             }
+            Backend::Portal => {
+                let image = crate::portal::screenshot()?;
+                Ok(Capture {
+                    desktop: fit_to_monitors(image, &crate::monitors::detect()),
+                    shell: None,
+                    window: None,
+                    cursor: None,
+                })
+            }
             Backend::GnomeScreenshot => run("gnome-screenshot", &["-f"], file).and_then(|_| tool_shot(file)),
             Backend::Grim => run("grim", &[], file).and_then(|_| tool_shot(file)),
         }
     }
+}
+
+/// The portal says nothing about the monitors, so a picture whose shape is not the
+/// monitors' (it was taken at another scale in each direction) is stretched to
+/// their size in logical pixels. A uniform scale, which `split` handles, is kept.
+fn fit_to_monitors(image: RgbaImage, monitors: &[Monitor]) -> RgbaImage {
+    let min_x = monitors.iter().map(|m| m.x).min();
+    let min_y = monitors.iter().map(|m| m.y).min();
+    let max_x = monitors.iter().map(|m| m.x + m.width).max();
+    let max_y = monitors.iter().map(|m| m.y + m.height).max();
+    let (Some(min_x), Some(min_y), Some(max_x), Some(max_y)) = (min_x, min_y, max_x, max_y) else { return image };
+    let (width, height) = ((max_x - min_x).max(1) as f64, (max_y - min_y).max(1) as f64);
+    let (sx, sy) = (image.width() as f64 / width, image.height() as f64 / height);
+    if (sx / sy - 1.0).abs() < 0.01 {
+        return image;
+    }
+    eprintln!(
+        "queijo: the portal's picture is {}x{} but the monitors are {width}x{height}; resizing it",
+        image.width(),
+        image.height()
+    );
+    image::imageops::resize(&image, width as u32, height as u32, image::imageops::FilterType::Triangle)
 }
 
 /// What an external tool wrote: a picture of the desktop and nothing more.
@@ -353,9 +391,30 @@ mod tests {
         let wayland = Env { session: Session::Wayland, desktop: Desktop::Gnome, compositing: true };
         assert_eq!(
             screenshot_backends(&wayland),
-            [Backend::GnomeShell, Backend::GnomeScreenshot, Backend::Grim],
-            "GNOME on Wayland keeps the order it always had"
+            [Backend::GnomeShell, Backend::Portal, Backend::GnomeScreenshot],
+            "the Shell stays first on GNOME with Wayland"
         );
+    }
+
+    #[test]
+    fn every_desktop_ends_with_something_that_works_anywhere() {
+        let env = |session, desktop| Env { session, desktop, compositing: true };
+        for desktop in [Desktop::Gnome, Desktop::Kde, Desktop::Sway, Desktop::Other(String::new())] {
+            for session in [Session::Wayland, Session::X11, Session::Headless] {
+                let chain = screenshot_backends(&env(session, desktop.clone()));
+                assert!(chain.contains(&Backend::Portal), "{session:?} {desktop:?}: {chain:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn leaves_a_uniformly_scaled_picture_alone_and_stretches_a_skewed_one() {
+        let monitors = [monitor(0, 0, 1600, 900)];
+        let same = fit_to_monitors(RgbaImage::new(3200, 1800), &monitors);
+        assert_eq!(same.dimensions(), (3200, 1800));
+        let skewed = fit_to_monitors(RgbaImage::new(3200, 1200), &monitors);
+        assert_eq!(skewed.dimensions(), (1600, 900));
+        assert_eq!(fit_to_monitors(RgbaImage::new(10, 10), &[]).dimensions(), (10, 10));
     }
 
     #[test]

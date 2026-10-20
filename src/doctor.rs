@@ -205,6 +205,7 @@ fn backend_line(backend: Backend, env: &Env) -> String {
     let state = match backend {
         Backend::GnomeShell | Backend::X11 if env.session == Session::Headless => "no display",
         Backend::X11 => yes_no(Some(crate::x11::screenshot(None).is_ok())),
+        Backend::Portal => yes_no(bus_name_taken("org.freedesktop.portal.Desktop")),
         Backend::GnomeShell => yes_no(bus_name_taken("org.gnome.Shell.Screenshot")),
         Backend::GnomeScreenshot => yes_no(Some(on_path("gnome-screenshot"))),
         Backend::Grim => yes_no(Some(on_path("grim"))),
