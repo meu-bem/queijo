@@ -7,6 +7,8 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Changed
+- Drawing on the CPU, which the editor needs on GNOME with Wayland, is no longer
+  forced on other desktops. `QUEIJO_SOFTWARE_GL=1` or `0` overrides the choice.
 - When no clipboard tool is installed, the error names the one to install for
   your session (`wl-clipboard` on Wayland, `xclip` on X11) instead of an
   operating system error.

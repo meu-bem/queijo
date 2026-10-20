@@ -234,6 +234,11 @@ fn report(env: &Env) -> String {
     let distro = if release.pretty_name.is_empty() { "unknown" } else { &release.pretty_name };
     line(format!("Distro:   {distro} (package manager: {})", manager.map_or("unknown", Manager::name)));
 
+    let forced = std::env::var("QUEIJO_SOFTWARE_GL").ok();
+    let drawing = if crate::desktop::wants_software_gl(env, forced.as_deref()) { "CPU (software)" } else { "GPU" };
+    let reason = if forced.is_some() { " (QUEIJO_SOFTWARE_GL)" } else { "" };
+    line(format!("Drawing:  {drawing}{reason}"));
+
     line(String::new());
     line("Monitors:".into());
     let monitors = crate::monitors::detect();

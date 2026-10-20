@@ -48,7 +48,10 @@ fn main() {
     if let Some(area) = &args.record {
         record_area(area, &cfg);
     }
-    if monitors::is_wayland() && std::env::var_os("LIBGL_ALWAYS_SOFTWARE").is_none() {
+    let software_gl = std::env::var("QUEIJO_SOFTWARE_GL").ok();
+    if desktop::wants_software_gl(desktop::Env::current(), software_gl.as_deref())
+        && std::env::var_os("LIBGL_ALWAYS_SOFTWARE").is_none()
+    {
         // Mutter (42) scans a fullscreen GPU buffer straight out to the monitor,
         // ignoring its alpha, so our see-through windows would show up black.
         // Software rendering hands it shared-memory buffers, which it always

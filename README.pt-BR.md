@@ -148,6 +148,10 @@ queijo --doctor         # o que o Queijo encontrou no seu sistema e o que falta
 
 As opções da linha de comando e a ajuda (`--help`) estão em inglês.
 
+Se as janelas do editor aparecem pretas ou o escurecimento some, defina
+`QUEIJO_SOFTWARE_GL=1` para desenhar pela CPU, ou `QUEIJO_SOFTWARE_GL=0` para usar a
+GPU (fora do GNOME, a GPU é o padrão). Conte-nos em qual desktop aconteceu.
+
 ## Configurações
 
 Abra pela engrenagem na barra superior do editor, com `queijo --settings` ou em

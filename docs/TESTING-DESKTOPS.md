@@ -37,6 +37,10 @@ The GNOME 42 Wayland row is the environment the README has always claimed (Ubunt
 22.04); `--doctor` and `--quick` were run there again after the desktop detection
 and the screenshot backend list were added (2026-10-20).
 
+If the overlay is black on a desktop other than GNOME, `QUEIJO_SOFTWARE_GL=1` is the
+workaround, and the fix is to include that desktop in `desktop::wants_software_gl`.
+Drawing on the GPU is the untested default everywhere but GNOME on Wayland.
+
 ## What to try in each environment
 
 1. **Overlay**: the screen dims, the live screen shows through, and the selection

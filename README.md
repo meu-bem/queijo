@@ -142,6 +142,10 @@ queijo --settings       # open the settings
 queijo --doctor         # what Queijo found on your system, and what is missing
 ```
 
+If the editor's windows show up black or the dimming is missing, set
+`QUEIJO_SOFTWARE_GL=1` to draw with the CPU, or `QUEIJO_SOFTWARE_GL=0` to use the
+GPU (outside GNOME, the GPU is the default). Please tell us which desktop it was.
+
 ## Settings
 
 Open them from the gear in the editor's top bar, with `queijo --settings`, or from

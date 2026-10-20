@@ -115,6 +115,18 @@ pub fn detect_from(var: &dyn Fn(&str) -> Option<String>) -> Env {
     Env { session, desktop }
 }
 
+/// Whether to draw with the CPU instead of the GPU. Mutter shows see-through
+/// fullscreen windows black when they come from the GPU, so GNOME on Wayland
+/// needs it; other desktops are left on the GPU. `force` is `QUEIJO_SOFTWARE_GL`:
+/// `1` or `0` overrides that, for working around a desktop we have not tried.
+pub fn wants_software_gl(env: &Env, force: Option<&str>) -> bool {
+    match force {
+        Some("1") => true,
+        Some("0") => false,
+        _ => env.session == Session::Wayland && env.desktop == Desktop::Gnome,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,6 +181,20 @@ mod tests {
         assert_eq!(env(&[("WAYLAND_DISPLAY", "wayland-0"), ("DISPLAY", ":0")]).session, Session::Wayland);
         assert_eq!(env(&[("DISPLAY", ":0")]).session, Session::X11);
         assert_eq!(env(&[]).session, Session::Headless);
+    }
+
+    #[test]
+    fn software_drawing_is_for_gnome_on_wayland_unless_forced() {
+        let gnome = env(&[("WAYLAND_DISPLAY", "wayland-0"), ("XDG_CURRENT_DESKTOP", "GNOME")]);
+        let gnome_x11 = env(&[("DISPLAY", ":0"), ("XDG_CURRENT_DESKTOP", "GNOME")]);
+        let kde = env(&[("WAYLAND_DISPLAY", "wayland-0"), ("XDG_CURRENT_DESKTOP", "KDE")]);
+        assert!(wants_software_gl(&gnome, None));
+        assert!(!wants_software_gl(&gnome_x11, None));
+        assert!(!wants_software_gl(&kde, None));
+        assert!(wants_software_gl(&kde, Some("1")));
+        assert!(!wants_software_gl(&gnome, Some("0")));
+        assert!(wants_software_gl(&gnome, Some("anything else")));
+        assert!(!wants_software_gl(&kde, Some("")));
     }
 
     #[test]
