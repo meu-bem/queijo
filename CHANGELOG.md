@@ -6,6 +6,11 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `queijo --doctor` prints the session, the desktop, the distribution, the
+  monitors, what Queijo will use to take screenshots and which of the tools it
+  needs are missing, with the command to install them.
+
 ## [0.2.0] - 2026-10-20
 
 ### Changed

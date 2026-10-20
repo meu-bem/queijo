@@ -44,7 +44,8 @@ O Queijo foi feito para o **GNOME**. Só foi testado no **Ubuntu 22.04 com GNOME
 no Wayland**, que é o ambiente para o qual os pacotes são gerados. Outras versões
 do GNOME, sessões X11 e outros ambientes de desktop não foram testados. Fora do
 GNOME não há gravação de tela, e as capturas de imagem só funcionam pelos
-recursos alternativos (`gnome-screenshot` ou `grim`).
+recursos alternativos (`gnome-screenshot` ou `grim`). `queijo --doctor` mostra o que
+foi detectado no seu sistema; inclua a saída dele ao relatar um problema.
 
 ## Instalação
 
@@ -141,6 +142,7 @@ queijo -d 3             # espera 3 segundos antes
 queijo -o ~/Capturas    # salva as imagens nessa pasta desta vez
 queijo --stop           # para uma gravação
 queijo --settings       # abre as configurações
+queijo --doctor         # o que o Queijo encontrou no seu sistema e o que falta
 ```
 
 As opções da linha de comando e a ajuda (`--help`) estão em inglês.

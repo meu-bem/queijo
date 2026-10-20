@@ -41,7 +41,8 @@ Queijo is built for **GNOME**. It has only been tested on **Ubuntu 22.04 with
 GNOME 42 on Wayland**, which is the environment the packages target. Other GNOME
 versions, X11 sessions and other desktops are untested. Outside GNOME there is no
 screen recording, and screenshots only work through the fallbacks (`gnome-screenshot`
-or `grim`).
+or `grim`). `queijo --doctor` prints what it detected on your system; please
+include its output when you report a problem.
 
 ## Install
 
@@ -138,6 +139,7 @@ queijo -d 3             # wait 3 seconds first
 queijo -o ~/Shots       # save screenshots there this time
 queijo --stop           # stop a recording
 queijo --settings       # open the settings
+queijo --doctor         # what Queijo found on your system, and what is missing
 ```
 
 ## Settings

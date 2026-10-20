@@ -25,7 +25,7 @@ impl Monitor {
 }
 
 pub fn is_wayland() -> bool {
-    std::env::var_os("WAYLAND_DISPLAY").is_some()
+    crate::desktop::Env::current().session == crate::desktop::Session::Wayland
 }
 
 pub fn detect() -> Vec<Monitor> {

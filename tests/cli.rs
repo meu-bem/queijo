@@ -46,7 +46,7 @@ fn the_help_lists_the_options() {
     assert!(out.status.success());
     let help = stdout(&out);
     assert!(help.contains("Screenshot, screencast and GIF tool"), "{help}");
-    for option in ["--kind", "--area", "--monitor", "--quick", "--settings", "--stop", "--list-monitors"] {
+    for option in ["--kind", "--area", "--monitor", "--quick", "--settings", "--stop", "--list-monitors", "--doctor"] {
         assert!(help.contains(option), "{option} is missing from the help");
     }
     assert!(!help.contains("--record"), "the internal option stays hidden");
@@ -64,6 +64,17 @@ fn rejects_bad_arguments() {
 fn listing_monitors_works_without_a_display() {
     let out = run(&["--list-monitors"]);
     assert!(out.status.success(), "{}", stderr(&out));
+}
+
+#[test]
+fn the_doctor_reports_without_a_display() {
+    let out = run(&["--doctor"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let report = stdout(&out);
+    assert!(report.starts_with(&format!("queijo {}\n", env!("CARGO_PKG_VERSION"))), "{report}");
+    for section in ["Session:", "Desktop:", "Distro:", "Monitors:", "Screenshot, tried in this order:", "Tools:"] {
+        assert!(report.contains(section), "{section} is missing: {report}");
+    }
 }
 
 #[test]

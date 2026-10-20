@@ -2,6 +2,8 @@ mod app;
 mod capture;
 mod cli;
 mod config;
+mod desktop;
+mod doctor;
 mod gif;
 mod i18n;
 mod icon;
@@ -33,6 +35,11 @@ fn main() {
         if let Err(e) = settings::run() {
             fail(&i18n::tf("error.open_settings", &[("error", &e.to_string())]));
         }
+        return;
+    }
+
+    if args.doctor {
+        doctor::run();
         return;
     }
 
