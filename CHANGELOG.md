@@ -28,6 +28,10 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- Screen recording through the desktop portal (ScreenCast and PipeWire) on KDE
+  Plasma and any other desktop that has it, with `gst-launch-1.0` doing the
+  encoding. You pick the screen in the desktop's own dialog the first time, and
+  Queijo remembers it. There is no countdown before that dialog.
 - Screen recording (video and GIF) on X11 with any desktop, using `ffmpeg`, and on
   Sway and Hyprland, using `wf-recorder`. The pointer option does not apply to
   `wf-recorder`, which always draws it, and an old one (Ubuntu 22.04's) records at

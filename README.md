@@ -37,11 +37,17 @@ More languages are planned; the way to add one is described in
 
 ## Compatibility
 
-Queijo is built for **GNOME**. It has only been tested on **Ubuntu 22.04 with
-GNOME 42 on Wayland**, which is the environment the packages target. Other GNOME
-versions, X11 sessions and other desktops are untested. Outside GNOME there is no
-screen recording, and screenshots only work through the fallbacks (`gnome-screenshot`
-or `grim`). `queijo --doctor` prints what it detected on your system; please
+Queijo is built for **GNOME**. It has only been tested on a real **Ubuntu 22.04 with
+GNOME 42 on Wayland**, which is the environment the packages target.
+
+It can also take screenshots and record on any X11 desktop, on KDE Plasma, on Sway and
+Hyprland, and through the desktop portal. Those ways were tried only on a virtual X11
+screen and a headless Sway, or against stand-ins, never on a real machine
+([docs/TESTING-DESKTOPS.md](docs/TESTING-DESKTOPS.md) says what), so treat them as
+experimental. Recording through the portal needs `gst-launch-1.0` with GStreamer's
+PipeWire plugin, and Sway and Hyprland need `wf-recorder`.
+
+`queijo --doctor` prints what it detected on your system and what it will use; please
 include its output when you report a problem.
 
 ## Install

@@ -81,6 +81,10 @@ making_gif_body = "Optimizing colors and frames"
 gif_saved = "GIF saved"
 gif_copied = "copied to clipboard"
 screencast_saved = "Screencast saved"
+recording_started = "Recording started"
+recording_started_body = "Stop it with {shortcut}"
+record_whole_screen = "Recording the whole screen"
+record_whole_screen_body = "The area you chose is not on the screen you picked."
 
 [error]
 no_clipboard = "no clipboard tool found (install {package})"

@@ -791,7 +791,12 @@ impl QueijoApp {
     }
 
     fn countdown_steps(&self) -> u32 {
-        self.cfg.countdown.min(10)
+        // When the desktop asks which screen to record, its dialog comes next: no countdown before it.
+        if record::asks_first() {
+            0
+        } else {
+            self.cfg.countdown.min(10)
+        }
     }
 
     fn tick_countdown(&mut self, ctx: &egui::Context, now: f64) {

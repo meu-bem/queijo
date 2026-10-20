@@ -1,5 +1,6 @@
 mod gnome;
 mod process;
+mod screencast;
 mod wlr;
 mod x11grab;
 
@@ -93,12 +94,34 @@ pub struct Job<'a> {
     pub conn: Option<&'a zbus::blocking::Connection>,
     /// A backend whose recorder ends by itself says so here, which ends the wait.
     pub ended: mpsc::Sender<()>,
+    pub cfg: &'a Config,
 }
 
 /// A recording in progress.
 pub trait Session {
     /// Ends it and returns the file it wrote.
     fn stop(self: Box<Self>) -> Result<PathBuf, String>;
+}
+
+/// Why a backend did not start.
+#[derive(Debug)]
+pub enum Failure {
+    /// It can't be used here; the next one may.
+    Unavailable(String),
+    /// The user said no when asked, which is the answer for all of them.
+    Cancelled,
+}
+
+impl From<String> for Failure {
+    fn from(message: String) -> Self {
+        Failure::Unavailable(message)
+    }
+}
+
+impl From<&str> for Failure {
+    fn from(message: &str) -> Self {
+        Failure::Unavailable(message.into())
+    }
 }
 
 /// A way of recording the screen.
@@ -109,6 +132,8 @@ pub enum Backend {
     X11,
     /// `wf-recorder`, for compositors with wlr-screencopy (Sway, Hyprland, ...).
     Wlr,
+    /// `xdg-desktop-portal` ScreenCast and PipeWire, which any desktop can offer.
+    Portal,
 }
 
 impl Backend {
@@ -117,14 +142,16 @@ impl Backend {
             Backend::GnomeShell => "GNOME Shell",
             Backend::X11 => "ffmpeg (x11grab)",
             Backend::Wlr => "wf-recorder",
+            Backend::Portal => "desktop portal",
         }
     }
 
-    fn start(self, job: &Job) -> Result<Box<dyn Session>, String> {
+    fn start(self, job: &Job) -> Result<Box<dyn Session>, Failure> {
         match self {
-            Backend::GnomeShell => gnome::start(job),
-            Backend::X11 => x11grab::start(job),
-            Backend::Wlr => wlr::start(job),
+            Backend::GnomeShell => Ok(gnome::start(job)?),
+            Backend::X11 => Ok(x11grab::start(job)?),
+            Backend::Wlr => Ok(wlr::start(job)?),
+            Backend::Portal => screencast::start(job),
         }
     }
 }
@@ -133,20 +160,34 @@ impl Backend {
 pub fn backends(env: &Env) -> Vec<Backend> {
     use Backend::*;
     match (env.session, &env.desktop) {
-        (DesktopSession::X11, Desktop::Gnome) => vec![GnomeShell, X11],
-        (DesktopSession::X11, _) => vec![X11],
-        (DesktopSession::Wayland, Desktop::Sway | Desktop::Hyprland) => vec![Wlr],
-        _ => vec![GnomeShell],
+        (DesktopSession::X11, Desktop::Gnome) => vec![GnomeShell, X11, Portal],
+        (DesktopSession::X11, _) => vec![X11, Portal],
+        (DesktopSession::Wayland, Desktop::Gnome) => vec![GnomeShell, Portal],
+        (DesktopSession::Wayland, Desktop::Sway | Desktop::Hyprland) => vec![Wlr, Portal],
+        (DesktopSession::Wayland, Desktop::Kde) => vec![Portal],
+        (DesktopSession::Wayland, _) => vec![Portal, Wlr],
+        (DesktopSession::Headless, _) => vec![GnomeShell, Portal],
     }
 }
 
+/// Whether the first backend for this desktop asks the user something (the portal's
+/// dialog) before it records, which makes a countdown in front of it pointless.
+pub fn asks_first() -> bool {
+    asks_first_in(Env::current())
+}
+
+fn asks_first_in(env: &Env) -> bool {
+    backends(env).first() == Some(&Backend::Portal)
+}
+
 /// Starts the first backend that can.
-fn start_first(chain: &[Backend], job: &Job) -> Result<Box<dyn Session>, String> {
+fn start_first(chain: &[Backend], job: &Job) -> Result<Option<Box<dyn Session>>, String> {
     let mut last = String::from("nothing can record the screen here");
     for (i, backend) in chain.iter().enumerate() {
         match backend.start(job) {
-            Ok(session) => return Ok(session),
-            Err(e) => {
+            Ok(session) => return Ok(Some(session)),
+            Err(Failure::Cancelled) => return Ok(None),
+            Err(Failure::Unavailable(e)) => {
                 match chain.get(i + 1) {
                     Some(next) => eprintln!("queijo: {} can't record ({e}), trying {}", backend.name(), next.name()),
                     None => eprintln!("queijo: {} can't record ({e})", backend.name()),
@@ -159,8 +200,9 @@ fn start_first(chain: &[Backend], job: &Job) -> Result<Box<dyn Session>, String>
 }
 
 /// Records the area until another `queijo` (the same hotkey pressed again),
-/// or the top-bar indicator says to stop.
-pub fn run(req: Request, listener: &UnixListener, cfg: &Config) -> Result<PathBuf, String> {
+/// or the top-bar indicator says to stop. `None` if the user turned the
+/// recording down when asked.
+pub fn run(req: Request, listener: &UnixListener, cfg: &Config) -> Result<Option<PathBuf>, String> {
     let target = if req.gif { &cfg.gifs } else { &cfg.videos };
     std::fs::create_dir_all(target.dir()).map_err(|e| e.to_string())?;
     let stamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
@@ -203,8 +245,9 @@ pub fn run(req: Request, listener: &UnixListener, cfg: &Config) -> Result<PathBu
         path,
         conn: conn.as_ref(),
         ended: stop_tx,
+        cfg,
     };
-    let session = start_first(&backends(Env::current()), &job)?;
+    let Some(session) = start_first(&backends(Env::current()), &job)? else { return Ok(None) };
 
     // Only now, so the indicator appears exactly when recording runs.
     if let Some(conn) = &conn {
@@ -220,13 +263,13 @@ pub fn run(req: Request, listener: &UnixListener, cfg: &Config) -> Result<PathBu
     let used = session.stop()?;
     drop(conn);
     if !req.gif {
-        return Ok(used);
+        return Ok(Some(used));
     }
     crate::output::notify(crate::i18n::t("notify.making_gif"), crate::i18n::t("notify.making_gif_body"), None);
     let gif = target.unique_path("gif", req.width as u32, req.height as u32);
     let result = crate::gif::convert(&used, &gif, cfg.gif_max_width);
     let _ = std::fs::remove_file(&used);
-    result.map(|()| gif)
+    result.map(|()| Some(gif))
 }
 
 fn cache_dir() -> PathBuf {
@@ -246,16 +289,31 @@ mod tests {
 
     #[test]
     fn the_gnome_shell_records_gnome_as_it_always_did() {
-        assert_eq!(backends(&env(DesktopSession::Wayland, Desktop::Gnome)), [Backend::GnomeShell]);
-        assert_eq!(backends(&env(DesktopSession::X11, Desktop::Gnome)), [Backend::GnomeShell, Backend::X11]);
+        let wayland = backends(&env(DesktopSession::Wayland, Desktop::Gnome));
+        assert_eq!(wayland, [Backend::GnomeShell, Backend::Portal]);
+        let x11 = backends(&env(DesktopSession::X11, Desktop::Gnome));
+        assert_eq!(x11, [Backend::GnomeShell, Backend::X11, Backend::Portal]);
     }
 
     #[test]
     fn other_desktops_get_a_recorder_that_fits_their_session() {
-        assert_eq!(backends(&env(DesktopSession::X11, Desktop::Xfce)), [Backend::X11]);
-        assert_eq!(backends(&env(DesktopSession::X11, Desktop::Kde)), [Backend::X11]);
-        assert_eq!(backends(&env(DesktopSession::Wayland, Desktop::Sway)), [Backend::Wlr]);
-        assert_eq!(backends(&env(DesktopSession::Wayland, Desktop::Hyprland)), [Backend::Wlr]);
+        assert_eq!(backends(&env(DesktopSession::X11, Desktop::Xfce)), [Backend::X11, Backend::Portal]);
+        assert_eq!(backends(&env(DesktopSession::X11, Desktop::Kde)), [Backend::X11, Backend::Portal]);
+        assert_eq!(backends(&env(DesktopSession::Wayland, Desktop::Sway)), [Backend::Wlr, Backend::Portal]);
+        assert_eq!(backends(&env(DesktopSession::Wayland, Desktop::Hyprland)), [Backend::Wlr, Backend::Portal]);
+        assert_eq!(backends(&env(DesktopSession::Wayland, Desktop::Kde)), [Backend::Portal]);
+        assert_eq!(
+            backends(&env(DesktopSession::Wayland, Desktop::Other("river".into()))),
+            [Backend::Portal, Backend::Wlr]
+        );
+    }
+
+    #[test]
+    fn only_a_portal_first_means_a_dialog_first() {
+        assert!(asks_first_in(&env(DesktopSession::Wayland, Desktop::Kde)));
+        assert!(!asks_first_in(&env(DesktopSession::Wayland, Desktop::Gnome)));
+        assert!(!asks_first_in(&env(DesktopSession::X11, Desktop::Xfce)));
+        assert!(!asks_first_in(&env(DesktopSession::Wayland, Desktop::Sway)));
     }
 
     #[test]

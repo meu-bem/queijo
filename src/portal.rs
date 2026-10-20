@@ -11,8 +11,8 @@ use zbus::message::Type;
 use zbus::zvariant::{DynamicType, OwnedValue, Value};
 use zbus::MatchRule;
 
-const DESTINATION: &str = "org.freedesktop.portal.Desktop";
-const PATH: &str = "/org/freedesktop/portal/desktop";
+pub(crate) const DESTINATION: &str = "org.freedesktop.portal.Desktop";
+pub(crate) const PATH: &str = "/org/freedesktop/portal/desktop";
 const REQUEST: &str = "org.freedesktop.portal.Request";
 
 /// The `a{sv}` argument every portal request ends with.

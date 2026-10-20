@@ -265,7 +265,8 @@ fn record_area(area: &str, cfg: &config::Config) -> ! {
     // Give the compositor a moment to take the editor off screen.
     std::thread::sleep(Duration::from_millis(120));
     match record::run(req, &listener, cfg) {
-        Ok(path) if req.gif => {
+        Ok(None) => std::process::exit(0),
+        Ok(Some(path)) if req.gif => {
             let copied = std::fs::read(&path).is_ok_and(|data| output::copy_data("image/gif", &data).is_ok());
             let mb = std::fs::metadata(&path).map(|m| m.len() as f64 / 1e6).unwrap_or(0.0);
             let mut detail = format!("{} · {mb:.1} MB", output::tilde(&path));
@@ -276,7 +277,7 @@ fn record_area(area: &str, cfg: &config::Config) -> ! {
             println!("{}", path.display());
             std::process::exit(0);
         }
-        Ok(path) => {
+        Ok(Some(path)) => {
             output::notify(i18n::t("notify.screencast_saved"), &output::tilde(&path), None);
             println!("{}", path.display());
             std::process::exit(0);

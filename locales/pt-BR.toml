@@ -78,6 +78,10 @@ making_gif = "Gerando o GIF…"
 making_gif_body = "Otimizando cores e quadros"
 gif_saved = "GIF salvo"
 gif_copied = "copiado para a área de transferência"
+recording_started = "Gravação iniciada"
+recording_started_body = "Para parar, use {shortcut}"
+record_whole_screen = "Gravando a tela inteira"
+record_whole_screen_body = "A área escolhida não está na tela que você selecionou."
 screencast_saved = "Gravação salva"
 
 [error]

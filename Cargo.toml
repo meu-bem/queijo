@@ -47,7 +47,7 @@ indicator in the top bar; enable it with \
 depends = """$auto, gnome-shell (>= 42), libglib2.0-bin, wl-clipboard, ffmpeg, \
 libwayland-client0, libxkbcommon0, libxkbcommon-x11-0, libegl1, libgl1, libx11-6, libxcb1, \
 libxcursor1, libxi6, libxrandr2"""
-recommends = "gifsicle, zenity, libnotify-bin, xclip, gnome-screenshot, x11-xserver-utils"
+recommends = "gifsicle, zenity, libnotify-bin, wf-recorder, gstreamer1.0-tools, gstreamer1.0-pipewire, gstreamer1.0-plugins-good, gstreamer1.0-libav, xclip, gnome-screenshot, x11-xserver-utils"
 assets = [
     ["target/release/queijo", "usr/bin/", "755"],
     ["packaging/queijo.desktop", "usr/share/applications/", "644"],

@@ -35,7 +35,8 @@ jobs:
         # ffmpeg and the GNOME schemas let the tests that use them run for real.
         run: |
           sudo apt-get update
-          sudo apt-get install -y dbus xvfb ffmpeg gifsicle gnome-settings-daemon-common gnome-shell-common libglib2.0-bin
+          sudo apt-get install -y dbus xvfb ffmpeg gifsicle gstreamer1.0-tools gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good gnome-settings-daemon-common gnome-shell-common libglib2.0-bin
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -51,6 +52,7 @@ jobs:
           QUEIJO_REQUIRE_GSETTINGS: "1"
           QUEIJO_REQUIRE_DBUS: "1"
           QUEIJO_REQUIRE_XVFB: "1"
+          QUEIJO_REQUIRE_GSTREAMER: "1"
         run: cargo test --locked
 
   files:

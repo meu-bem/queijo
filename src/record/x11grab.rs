@@ -105,6 +105,7 @@ mod tests {
             path,
             conn: None,
             ended: tx,
+            cfg: Box::leak(Box::default()),
         }
     }
 

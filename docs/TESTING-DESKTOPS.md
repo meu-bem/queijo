@@ -63,6 +63,16 @@ application folders. Things to look at on a real Plasma 5.27 and 6: that the cal
 accepted for the `.deb` install and for the `~/.local` one, which pixel format arrives, and
 the picture's size on a screen with fractional scaling.
 
+Recording on X11 (`ffmpeg x11grab`) and on Sway (`wf-recorder` 0.2.1) was tried end to end
+on a virtual X11 screen and a headless Sway. Recording through the ScreenCast portal was
+tried against a stand-in for the portal and with GStreamer's test picture in place of the
+PipeWire stream (so the crop and the encoder are checked); it has never run against a real
+portal or a real PipeWire screen stream, and a hand-made PipeWire node did not deliver
+frames, so that part is unverified. Things to look at: that the dialog appears and the
+chosen screen is what is recorded, that a remembered screen is not asked again, that an
+area on another screen records the whole picked one with a notification, and fractional
+scaling (the recording is made at the screen's logical size).
+
 ## What to try in each environment
 
 1. **Overlay**: the screen dims, the live screen shows through, and the selection

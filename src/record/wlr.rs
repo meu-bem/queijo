@@ -84,6 +84,7 @@ mod tests {
             path: "/v/out.webm".into(),
             conn: None,
             ended: tx,
+            cfg: Box::leak(Box::default()),
         }
     }
 

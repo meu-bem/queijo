@@ -40,12 +40,18 @@ previstos; o passo a passo para adicionar um está em
 
 ## Compatibilidade
 
-O Queijo foi feito para o **GNOME**. Só foi testado no **Ubuntu 22.04 com GNOME 42
-no Wayland**, que é o ambiente para o qual os pacotes são gerados. Outras versões
-do GNOME, sessões X11 e outros ambientes de desktop não foram testados. Fora do
-GNOME não há gravação de tela, e as capturas de imagem só funcionam pelos
-recursos alternativos (`gnome-screenshot` ou `grim`). `queijo --doctor` mostra o que
-foi detectado no seu sistema; inclua a saída dele ao relatar um problema.
+O Queijo foi feito para o **GNOME**. Só foi testado num **Ubuntu 22.04 com GNOME 42
+no Wayland** de verdade, que é o ambiente para o qual os pacotes são gerados.
+
+Ele também tira capturas e grava em qualquer desktop X11, no KDE Plasma, no Sway e no
+Hyprland, e pelo portal do desktop. Esses caminhos só foram testados numa tela X11
+virtual e num Sway sem tela, ou contra simulações, nunca numa máquina de verdade
+([docs/TESTING-DESKTOPS.md](docs/TESTING-DESKTOPS.md) diz o quê), então trate-os como
+experimentais. Gravar pelo portal exige o `gst-launch-1.0` com o plugin PipeWire do
+GStreamer, e o Sway e o Hyprland exigem o `wf-recorder`.
+
+`queijo --doctor` mostra o que foi detectado no seu sistema e o que será usado; inclua
+a saída dele ao relatar um problema.
 
 ## Instalação
 

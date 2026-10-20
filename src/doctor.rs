@@ -167,6 +167,13 @@ const TOOLS: &[Tool] = &[
         packages: ["gnome-screenshot"; 5],
     },
     Tool {
+        program: "gst-launch-1.0",
+        purpose: "screen recording through the portal (with GStreamer's pipewire plugin)",
+        when: When::Wayland,
+        required: false,
+        packages: ["gstreamer1.0-tools", "gstreamer1", "gstreamer-utils", "gstreamer", "gstreamer-tools"],
+    },
+    Tool {
         program: "wf-recorder",
         purpose: "screen recording on Sway and Hyprland",
         when: When::Wlroots,
@@ -204,11 +211,17 @@ fn is_executable(path: &Path) -> bool {
     path.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
-/// Whether something owns `name` on the session bus; `None` if there is no bus.
+/// Whether `name` is on the session bus: owned now, or started when first used (some
+/// services, like GNOME's screencast, only take their name then). `None` if there is no bus.
 fn bus_name_taken(name: &'static str) -> Option<bool> {
     let conn = zbus::blocking::Connection::session().ok()?;
     let bus = zbus::blocking::fdo::DBusProxy::new(&conn).ok()?;
-    bus.name_has_owner(zbus::names::BusName::try_from(name).ok()?).ok()
+    let wanted = zbus::names::BusName::try_from(name).ok()?;
+    if bus.name_has_owner(wanted).ok()? {
+        return Some(true);
+    }
+    let activatable = bus.list_activatable_names().ok()?;
+    Some(activatable.iter().any(|n| n.as_str() == name))
 }
 
 fn yes_no(found: Option<bool>) -> &'static str {
@@ -233,6 +246,11 @@ fn backend_line(backend: Backend, env: &Env) -> String {
     format!("{} ({state})", backend.name())
 }
 
+/// Whether GStreamer has the element (`gst-inspect-1.0` finds it).
+fn gst_element(name: &str) -> bool {
+    std::process::Command::new("gst-inspect-1.0").arg(name).output().is_ok_and(|out| out.status.success())
+}
+
 fn recording_line(backend: crate::record::Backend, env: &Env) -> String {
     use crate::record::Backend::*;
     let state = match backend {
@@ -240,6 +258,15 @@ fn recording_line(backend: crate::record::Backend, env: &Env) -> String {
         GnomeShell => yes_no(bus_name_taken("org.gnome.Shell.Screencast")),
         X11 => yes_no(Some(on_path("ffmpeg"))),
         Wlr => yes_no(Some(on_path("wf-recorder"))),
+        Portal => {
+            let ready = on_path("gst-launch-1.0") && gst_element("pipewiresrc");
+            match (bus_name_taken("org.freedesktop.portal.Desktop"), ready) {
+                (Some(true), true) => "found",
+                (Some(true), false) => "the portal is there, but gst-launch-1.0 or its pipewire plugin is not",
+                (Some(false), _) => "no portal on the bus",
+                (None, _) => "could not tell",
+            }
+        }
     };
     format!("{} ({state})", backend.name())
 }
