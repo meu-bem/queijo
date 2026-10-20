@@ -104,6 +104,24 @@ jobs:
           QUEIJO_REQUIRE_FROZEN: "1"
         run: xvfb-run -a -s "-screen 0 1280x800x24" scripts/smoke-test.sh target/release/queijo
 
+  wlroots:
+    name: Screenshot and editor (headless Sway)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sway swaybg grim imagemagick bc libgl1-mesa-dri libegl1 libwayland-egl1 \
+            libxkbcommon0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked --release
+      - name: Queijo on a wlroots compositor
+        run: scripts/wlroots-test.sh target/release/queijo
+
   package:
     name: Build the packages
     # `inputs` is empty on push and pull requests; `!null` is true, so they build.

@@ -7,6 +7,9 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- On Sway the editor no longer opens black over the screen: Sway paints a black
+  backdrop behind fullscreen windows, so it shows a still picture of the screen,
+  dimmed, as it does on X11 without a compositor.
 - On an X11 screen with no compositor (i3, bspwm, some Xfce setups), the editor
   no longer opens black: it shows a still picture of the screen, dimmed, as
   version 0.1.0 did. `queijo --doctor` says whether a compositor was found.
@@ -25,6 +28,8 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- On Sway and Hyprland, screenshots are taken with `grim` first, which is faster
+  than the portal and never asks.
 - Screenshots can also come from the desktop portal, which most desktops have,
   as a fallback when the desktop's own way fails. If the portal has to save the
   picture in a normal folder (GNOME does, in Pictures), the file is left there;

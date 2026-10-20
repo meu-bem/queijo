@@ -238,10 +238,11 @@ fn report(env: &Env) -> String {
 
     let compositor = match (env.session, env.compositing) {
         (Session::X11, false) => "none (the editor shows a still picture of the screen)",
+        (Session::Wayland, false) => "windows are opaque here (the editor shows a still picture of the screen)",
         (Session::X11, true) => "yes",
         _ => "built into the compositor",
     };
-    line(format!("Compositor: {compositor}"));
+    line(format!("See-through windows: {compositor}"));
     let forced = std::env::var("QUEIJO_SOFTWARE_GL").ok();
     let drawing = if crate::desktop::wants_software_gl(env, forced.as_deref()) { "CPU (software)" } else { "GPU" };
     let reason = if forced.is_some() { " (QUEIJO_SOFTWARE_GL)" } else { "" };

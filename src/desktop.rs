@@ -30,8 +30,8 @@ pub enum Desktop {
 pub struct Env {
     pub session: Session,
     pub desktop: Desktop,
-    /// Whether a compositor lets windows be see-through. Only an X11 session can
-    /// lack one; Wayland compositors are all compositors.
+    /// Whether a window can be see-through. Not on an X11 screen with no compositor,
+    /// nor on Sway, which paints a black backdrop behind every fullscreen window.
     pub compositing: bool,
 }
 
@@ -122,7 +122,8 @@ pub fn detect_from(var: &dyn Fn(&str) -> Option<String>) -> Env {
         .or_else(|| var("HYPRLAND_INSTANCE_SIGNATURE").map(|_| Desktop::Hyprland))
         .unwrap_or_else(|| Desktop::Other(names.into_iter().find(|n| !n.is_empty()).unwrap_or_default()));
 
-    Env { session, desktop, compositing: true }
+    let compositing = !(session == Session::Wayland && desktop == Desktop::Sway);
+    Env { session, desktop, compositing }
 }
 
 /// Whether to draw with the CPU instead of the GPU. Mutter shows see-through
@@ -184,6 +185,16 @@ mod tests {
         assert_eq!(env(&[("XDG_CURRENT_DESKTOP", "LXQt")]).desktop, Desktop::Other("LXQt".into()));
         assert_eq!(env(&[]).desktop, Desktop::Other(String::new()));
         assert_eq!(env(&[]).desktop.name(), "unknown");
+    }
+
+    #[test]
+    fn sway_cannot_show_the_screen_through_a_window() {
+        let sway = env(&[("WAYLAND_DISPLAY", "wayland-1"), ("XDG_CURRENT_DESKTOP", "sway")]);
+        assert!(!sway.compositing);
+        assert!(env(&[("WAYLAND_DISPLAY", "wayland-1"), ("XDG_CURRENT_DESKTOP", "KDE")]).compositing);
+        assert!(env(&[("WAYLAND_DISPLAY", "wayland-1"), ("XDG_CURRENT_DESKTOP", "Hyprland")]).compositing);
+        // On X11 it is the server that is asked, not the desktop's name.
+        assert!(env(&[("DISPLAY", ":0"), ("XDG_CURRENT_DESKTOP", "sway")]).compositing);
     }
 
     #[test]

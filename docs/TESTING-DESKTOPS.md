@@ -41,6 +41,11 @@ If the overlay is black on a desktop other than GNOME, `QUEIJO_SOFTWARE_GL=1` is
 workaround, and the fix is to include that desktop in `desktop::wants_software_gl`.
 Drawing on the GPU is the untested default everywhere but GNOME on Wayland.
 
+Sway paints a black backdrop behind every fullscreen window, so the editor, which is
+fullscreen, cannot show the live screen through itself there (found with a headless Sway,
+where the background came out black over a red wallpaper). It shows a still picture, as it
+does without a compositor. Hyprland and the others have not been tried.
+
 Without a compositor (the i3 / bspwm row) the editor shows a still picture of the screen
 instead of the live one. `scripts/smoke-test.sh` checks that on a virtual display, which
 has no compositor, and CI runs it; it still has to be looked at on a real one.

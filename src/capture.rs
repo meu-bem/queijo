@@ -89,6 +89,8 @@ pub fn screenshot_backends(env: &Env) -> Vec<Backend> {
         (Session::X11, Desktop::Gnome) => vec![GnomeShell, X11, Portal, GnomeScreenshot],
         (Session::X11, _) => vec![X11, Portal],
         (Session::Wayland, Desktop::Gnome) => vec![GnomeShell, Portal, GnomeScreenshot],
+        // These speak wlr-screencopy, which grim uses: faster than the portal and it never asks.
+        (Session::Wayland, Desktop::Sway | Desktop::Hyprland) => vec![Grim, Portal],
         (Session::Wayland, _) => vec![Portal, Grim],
         // No display variables (started from somewhere odd): the GNOME Shell answers on D-Bus anyway.
         (Session::Headless, _) => vec![GnomeShell, Portal, GnomeScreenshot, Grim],
@@ -415,6 +417,14 @@ mod tests {
         let skewed = fit_to_monitors(RgbaImage::new(3200, 1200), &monitors);
         assert_eq!(skewed.dimensions(), (1600, 900));
         assert_eq!(fit_to_monitors(RgbaImage::new(10, 10), &[]).dimensions(), (10, 10));
+    }
+
+    #[test]
+    fn grim_comes_first_on_wlroots_compositors() {
+        let env = |desktop| Env { session: Session::Wayland, desktop, compositing: true };
+        assert_eq!(screenshot_backends(&env(Desktop::Sway)), [Backend::Grim, Backend::Portal]);
+        assert_eq!(screenshot_backends(&env(Desktop::Hyprland)), [Backend::Grim, Backend::Portal]);
+        assert_eq!(screenshot_backends(&env(Desktop::Other("river".into()))), [Backend::Portal, Backend::Grim]);
     }
 
     #[test]
