@@ -146,7 +146,7 @@ mod tests {
         assert!(js.contains(&format!("const RECORDER_NAME = '{recorder}';")), "recorder name");
         assert!(js.contains(&format!("const RECORDER_PATH = '{}';", crate::record::RECORDER_PATH)), "recorder path");
         assert!(
-            include_str!("record.rs").contains(&format!("#[zbus::interface(name = \"{recorder}\")]")),
+            include_str!("record/mod.rs").contains(&format!("#[zbus::interface(name = \"{recorder}\")]")),
             "the recorder object's interface is named like its bus name"
         );
         assert_eq!(uuid, extension.file_name().unwrap().to_str().unwrap(), "folder name is the uuid");

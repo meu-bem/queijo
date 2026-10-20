@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+mod gnome;
+
 use std::io::Read;
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
@@ -8,7 +9,7 @@ use std::sync::mpsc;
 use chrono::Local;
 
 use crate::config::Config;
-use zbus::zvariant::Value;
+use crate::desktop::Env;
 
 /// Area to record, in logical desktop coordinates.
 #[derive(Clone, Copy, Debug)]
@@ -37,11 +38,6 @@ impl Request {
         (width > 0 && height > 0).then_some(Request { x, y, width, height, pointer: pointer != 0, gif })
     }
 }
-
-/// GIFs are recorded losslessly (FFV1, full RGB) and only then quantized, so
-/// text stays crisp; GNOME's default VP8 would blur it before we even start.
-const LOSSLESS_PIPELINE: &str = "videoconvert chroma-mode=none dither=none n-threads=%T ! video/x-raw,format=BGRx \
-    ! queue ! avenc_ffv1 ! queue ! matroskamux";
 
 /// Starts `queijo --record` in the background. Recording in a fresh process
 /// that owns no windows means nothing of the editor can linger on screen (or
@@ -80,9 +76,71 @@ impl Control {
     }
 }
 
-/// Records the area with GNOME Shell's screencast service until another
-/// `queijo` (the same hotkey pressed again) tells us to stop.
-/// GNOME shows its orange "screen is being recorded" indicator meanwhile.
+/// What a backend is asked to record.
+pub struct Job<'a> {
+    pub req: Request,
+    /// The size to record: the area's, made even as the encoders want.
+    pub width: i32,
+    pub height: i32,
+    pub fps: u32,
+    /// Where to write: the video, or for a GIF the lossless clip it is made from.
+    pub path: PathBuf,
+    /// The session bus, if there is one. The GNOME Shell stops recording when
+    /// the connection that started it goes away, so this one lives to the end.
+    pub conn: Option<&'a zbus::blocking::Connection>,
+}
+
+/// A recording in progress.
+pub trait Session {
+    /// Ends it and returns the file it wrote.
+    fn stop(self: Box<Self>) -> Result<PathBuf, String>;
+}
+
+/// A way of recording the screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Backend {
+    GnomeShell,
+}
+
+impl Backend {
+    pub fn name(self) -> &'static str {
+        match self {
+            Backend::GnomeShell => "GNOME Shell",
+        }
+    }
+
+    fn start(self, job: &Job) -> Result<Box<dyn Session>, String> {
+        match self {
+            Backend::GnomeShell => gnome::start(job),
+        }
+    }
+}
+
+/// The backends for this desktop, in the order they are tried.
+pub fn backends(_env: &Env) -> Vec<Backend> {
+    vec![Backend::GnomeShell]
+}
+
+/// Starts the first backend that can.
+fn start_first(chain: &[Backend], job: &Job) -> Result<Box<dyn Session>, String> {
+    let mut last = String::from("nothing can record the screen here");
+    for (i, backend) in chain.iter().enumerate() {
+        match backend.start(job) {
+            Ok(session) => return Ok(session),
+            Err(e) => {
+                match chain.get(i + 1) {
+                    Some(next) => eprintln!("queijo: {} can't record ({e}), trying {}", backend.name(), next.name()),
+                    None => eprintln!("queijo: {} can't record ({e})", backend.name()),
+                }
+                last = e;
+            }
+        }
+    }
+    Err(last)
+}
+
+/// Records the area until another `queijo` (the same hotkey pressed again),
+/// or the top-bar indicator says to stop.
 pub fn run(req: Request, listener: &UnixListener, cfg: &Config) -> Result<PathBuf, String> {
     let target = if req.gif { &cfg.gifs } else { &cfg.videos };
     std::fs::create_dir_all(target.dir()).map_err(|e| e.to_string())?;
@@ -95,18 +153,6 @@ pub fn run(req: Request, listener: &UnixListener, cfg: &Config) -> Result<PathBu
     } else {
         target.unique_path("webm", req.width as u32, req.height as u32)
     };
-    let file = path.to_str().ok_or("non UTF-8 path")?;
-
-    // The encoder wants even dimensions.
-    let (width, height) = (req.width & !1, req.height & !1);
-    let mut options: HashMap<&str, Value> = HashMap::new();
-    options.insert("draw-cursor", req.pointer.into());
-    if req.gif {
-        options.insert("framerate", (cfg.gif_fps.clamp(1, 50) as i32).into());
-        options.insert("pipeline", LOSSLESS_PIPELINE.into());
-    } else {
-        options.insert("framerate", (cfg.video_fps.clamp(1, 60) as i32).into());
-    }
 
     // Stop requests come from the top-bar indicator (D-Bus) or from launching
     // queijo again (the instance socket).
@@ -123,43 +169,36 @@ pub fn run(req: Request, listener: &UnixListener, cfg: &Config) -> Result<PathBu
         }
     });
 
-    // The Shell stops recording if this connection goes away, so it lives until the end.
     let conn = zbus::blocking::connection::Builder::session()
-        .and_then(|b| b.serve_at(RECORDER_PATH, Control(stop_tx)))
+        .and_then(|b| b.serve_at(RECORDER_PATH, Control(stop_tx.clone())))
         .and_then(|b| b.build())
-        .map_err(|e| e.to_string())?;
-    let reply = conn
-        .call_method(
-            Some("org.gnome.Shell.Screencast"),
-            "/org/gnome/Shell/Screencast",
-            Some("org.gnome.Shell.Screencast"),
-            "ScreencastArea",
-            &(req.x, req.y, width, height, file, options),
-        )
-        .map_err(|e| e.to_string())?;
-    let (ok, used): (bool, String) = reply.body().deserialize().map_err(|e| e.to_string())?;
-    if !ok {
-        return Err(crate::i18n::t("error.shell_refused").into());
-    }
+        .map_err(|e| eprintln!("queijo: no session bus ({e})"))
+        .ok();
+    let fps = if req.gif { cfg.gif_fps.clamp(1, 50) } else { cfg.video_fps.clamp(1, 60) };
+    let job = Job {
+        req,
+        // The encoder wants even dimensions.
+        width: req.width & !1,
+        height: req.height & !1,
+        fps,
+        path,
+        conn: conn.as_ref(),
+    };
+    let session = start_first(&backends(Env::current()), &job)?;
 
     // Only now, so the indicator appears exactly when recording runs.
-    if let Err(e) = conn.request_name(RECORDER_NAME) {
-        eprintln!("queijo: no top-bar indicator ({e})");
+    if let Some(conn) = &conn {
+        if let Err(e) = conn.request_name(RECORDER_NAME) {
+            eprintln!("queijo: no top-bar indicator ({e})");
+        }
     }
     let _ = stop_rx.recv();
-    let _ = conn.release_name(RECORDER_NAME);
+    if let Some(conn) = &conn {
+        let _ = conn.release_name(RECORDER_NAME);
+    }
 
-    conn.call_method(
-        Some("org.gnome.Shell.Screencast"),
-        "/org/gnome/Shell/Screencast",
-        Some("org.gnome.Shell.Screencast"),
-        "StopScreencast",
-        &(),
-    )
-    .map_err(|e| e.to_string())?;
+    let used = session.stop()?;
     drop(conn);
-
-    let used = PathBuf::from(used);
     if !req.gif {
         return Ok(used);
     }
