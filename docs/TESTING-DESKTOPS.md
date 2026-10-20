@@ -55,6 +55,14 @@ Queijo makes (no window, no interaction) after about ten seconds, and left a pic
 `~/Pictures`. It is only the last resort there, after the Shell. Other portals (KDE's,
 wlroots') have not been tried.
 
+KDE's screenshot service (`org.kde.KWin.ScreenShot2`) is written from KWin's own interface
+description and tested against a stand-in for it, never against a real Plasma. It only
+answers programs whose `.desktop` file lists the interface in
+`X-KDE-DBUS-Restricted-Interfaces` (`queijo.desktop` does), found through the usual
+application folders. Things to look at on a real Plasma 5.27 and 6: that the call is
+accepted for the `.deb` install and for the `~/.local` one, which pixel format arrives, and
+the picture's size on a screen with fractional scaling.
+
 ## What to try in each environment
 
 1. **Overlay**: the screen dims, the live screen shows through, and the selection

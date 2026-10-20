@@ -64,6 +64,9 @@ pub enum Backend {
     GnomeShell,
     /// The X server itself, for a real X11 session.
     X11,
+    /// KDE Plasma's screenshot service.
+    KWin,
+    Spectacle,
     /// `xdg-desktop-portal`, which every modern desktop has.
     Portal,
     GnomeScreenshot,
@@ -75,6 +78,8 @@ impl Backend {
         match self {
             Backend::GnomeShell => "GNOME Shell",
             Backend::X11 => "X11",
+            Backend::KWin => "KWin",
+            Backend::Spectacle => "spectacle",
             Backend::Portal => "desktop portal",
             Backend::GnomeScreenshot => "gnome-screenshot",
             Backend::Grim => "grim",
@@ -89,6 +94,7 @@ pub fn screenshot_backends(env: &Env) -> Vec<Backend> {
         (Session::X11, Desktop::Gnome) => vec![GnomeShell, X11, Portal, GnomeScreenshot],
         (Session::X11, _) => vec![X11, Portal],
         (Session::Wayland, Desktop::Gnome) => vec![GnomeShell, Portal, GnomeScreenshot],
+        (Session::Wayland, Desktop::Kde) => vec![KWin, Spectacle, Portal],
         // These speak wlr-screencopy, which grim uses: faster than the portal and it never asks.
         (Session::Wayland, Desktop::Sway | Desktop::Hyprland) => vec![Grim, Portal],
         (Session::Wayland, _) => vec![Portal, Grim],
@@ -145,6 +151,12 @@ impl Backend {
                 let (desktop, cursor) = crate::x11::screenshot(None)?;
                 Ok(Capture { desktop, shell: None, window: None, cursor })
             }
+            Backend::KWin => {
+                let desktop = crate::kwin::screenshot()?;
+                Ok(Capture { desktop, shell: None, window: None, cursor: None })
+            }
+            // -b: no window, -n: no notification, -f: every monitor, -o: write to this file.
+            Backend::Spectacle => run("spectacle", &["-b", "-n", "-f", "-o"], file).and_then(|_| tool_shot(file)),
             Backend::Portal => {
                 let image = crate::portal::screenshot()?;
                 Ok(Capture {
@@ -417,6 +429,12 @@ mod tests {
         let skewed = fit_to_monitors(RgbaImage::new(3200, 1200), &monitors);
         assert_eq!(skewed.dimensions(), (1600, 900));
         assert_eq!(fit_to_monitors(RgbaImage::new(10, 10), &[]).dimensions(), (10, 10));
+    }
+
+    #[test]
+    fn kde_on_wayland_asks_kwin_then_spectacle() {
+        let kde = Env { session: Session::Wayland, desktop: Desktop::Kde, compositing: true };
+        assert_eq!(screenshot_backends(&kde), [Backend::KWin, Backend::Spectacle, Backend::Portal]);
     }
 
     #[test]

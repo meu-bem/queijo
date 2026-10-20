@@ -7,6 +7,7 @@ mod doctor;
 mod gif;
 mod i18n;
 mod icon;
+mod kwin;
 mod monitors;
 mod output;
 mod paint;
@@ -15,6 +16,8 @@ mod record;
 mod settings;
 mod shell_ext;
 mod shortcut;
+#[cfg(test)]
+mod testutil;
 mod x11;
 
 use std::io::Write;

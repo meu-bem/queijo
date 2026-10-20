@@ -28,6 +28,10 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- On KDE Plasma with Wayland, screenshots come from KWin's own service, then from
+  `spectacle`, then from the portal. KWin only answers programs that its launcher
+  lists, so `queijo.desktop` now does; an install that puts that file only under
+  `~/.local` may not be trusted, and then `spectacle` takes over.
 - On Sway and Hyprland, screenshots are taken with `grim` first, which is faster
   than the portal and never asks.
 - Screenshots can also come from the desktop portal, which most desktops have,

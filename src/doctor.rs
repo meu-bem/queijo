@@ -91,6 +91,7 @@ enum When {
     Always,
     Wayland,
     X11,
+    Kde,
 }
 
 impl When {
@@ -99,6 +100,7 @@ impl When {
             When::Always => true,
             When::Wayland => env.session == Session::Wayland,
             When::X11 => env.session == Session::X11,
+            When::Kde => env.desktop == Desktop::Kde,
         }
     }
 }
@@ -163,6 +165,13 @@ const TOOLS: &[Tool] = &[
         packages: ["gnome-screenshot"; 5],
     },
     Tool {
+        program: "spectacle",
+        purpose: "screenshot fallback on KDE",
+        when: When::Kde,
+        required: false,
+        packages: ["kde-spectacle", "spectacle", "spectacle", "spectacle", "spectacle"],
+    },
+    Tool {
         program: "grim",
         purpose: "screenshot fallback on Wayland",
         when: When::Wayland,
@@ -206,6 +215,8 @@ fn backend_line(backend: Backend, env: &Env) -> String {
         Backend::GnomeShell | Backend::X11 if env.session == Session::Headless => "no display",
         Backend::X11 => yes_no(Some(crate::x11::screenshot(None).is_ok())),
         Backend::Portal => yes_no(bus_name_taken("org.freedesktop.portal.Desktop")),
+        Backend::KWin => yes_no(bus_name_taken("org.kde.KWin")),
+        Backend::Spectacle => yes_no(Some(on_path("spectacle"))),
         Backend::GnomeShell => yes_no(bus_name_taken("org.gnome.Shell.Screenshot")),
         Backend::GnomeScreenshot => yes_no(Some(on_path("gnome-screenshot"))),
         Backend::Grim => yes_no(Some(on_path("grim"))),
