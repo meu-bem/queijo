@@ -122,7 +122,7 @@ pub fn with_cursor(desktop: &RgbaImage, cursor: &Cursor) -> RgbaImage {
 fn to_rgba(data: &[u8], pixels: usize, format: PixelFormat) -> Vec<u8> {
     let mut out = Vec::with_capacity(pixels * 4);
     let fast = format.little_endian && (format.red, format.green, format.blue) == (0xff0000, 0xff00, 0xff);
-    for chunk in data.chunks_exact(4).take(pixels) {
+    for chunk in data.as_chunks::<4>().0.iter().take(pixels) {
         if fast {
             out.extend([chunk[2], chunk[1], chunk[0], 255]);
             continue;

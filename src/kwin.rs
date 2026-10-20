@@ -71,7 +71,7 @@ fn decode(data: &[u8], width: u32, height: u32, stride: u32, format: u32) -> Res
     // A screen is opaque, whatever the alpha channel says.
     let mut out = Vec::with_capacity(width * height * 4);
     for row in 0..height {
-        for px in data[row * stride..][..width * 4].chunks_exact(4) {
+        for px in data[row * stride..][..width * 4].as_chunks::<4>().0 {
             out.extend([px[r], px[g], px[b], 255]);
         }
     }
