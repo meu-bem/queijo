@@ -1,6 +1,6 @@
 [package]
 name = "queijo"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Screenshot, screencast and GIF tool for GNOME on Linux"
 authors = ["Mateus Santos <a.mateussm1.5@gmail.com>"]

@@ -6,6 +6,8 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-20
+
 ### Fixed
 - On Sway the editor no longer opens black over the screen: Sway paints a black
   backdrop behind fullscreen windows, so it shows a still picture of the screen,
