@@ -3,7 +3,9 @@
 
 use image::RgbaImage;
 
-use crate::desktop::{Desktop, Env};
+mod x11;
+
+use crate::desktop::{Desktop, Env, Session};
 
 /// A window on screen, as a desktop reports it.
 pub struct WindowInfo {
@@ -59,13 +61,19 @@ pub trait WindowSource: Send {
 pub enum Kind {
     /// The Queijo GNOME Shell extension.
     Extension,
+    /// An X11 window manager's EWMH properties.
+    X11,
 }
 
 pub fn kinds(env: &Env) -> Vec<Kind> {
-    match &env.desktop {
-        Desktop::Gnome | Desktop::Other(_) => vec![Kind::Extension],
-        _ => Vec::new(),
+    let mut kinds = Vec::new();
+    if matches!(env.desktop, Desktop::Gnome | Desktop::Other(_)) {
+        kinds.push(Kind::Extension);
     }
+    if env.session == Session::X11 {
+        kinds.push(Kind::X11);
+    }
+    kinds
 }
 
 /// The first way that answers, and the windows it listed.
@@ -73,6 +81,7 @@ pub fn find(env: &Env) -> Option<(Box<dyn WindowSource>, Vec<WindowInfo>)> {
     kinds(env).into_iter().find_map(|kind| {
         let source: Box<dyn WindowSource> = match kind {
             Kind::Extension => Box::new(crate::shell_ext::ShellExtension::connect()?),
+            Kind::X11 => Box::new(x11::X11Windows::new()),
         };
         let list = source.list()?;
         Some((source, list))
@@ -158,10 +167,18 @@ mod tests {
 
     #[test]
     fn the_extension_is_only_asked_on_gnome_and_unknown_desktops() {
-        let env = |desktop| Env { session: crate::desktop::Session::Wayland, desktop, compositing: true };
+        let env = |desktop| Env { session: Session::Wayland, desktop, compositing: true };
         assert_eq!(kinds(&env(Desktop::Gnome)), [Kind::Extension]);
         assert_eq!(kinds(&env(Desktop::Other(String::new()))), [Kind::Extension]);
         assert!(kinds(&env(Desktop::Kde)).is_empty());
+    }
+
+    #[test]
+    fn an_x11_session_asks_its_window_manager_after_the_extension() {
+        let env = |desktop| Env { session: Session::X11, desktop, compositing: true };
+        assert_eq!(kinds(&env(Desktop::Gnome)), [Kind::Extension, Kind::X11]);
+        assert_eq!(kinds(&env(Desktop::Xfce)), [Kind::X11]);
+        assert_eq!(kinds(&env(Desktop::Kde)), [Kind::X11]);
     }
 
     #[test]

@@ -28,6 +28,10 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- Window mode lists every window on X11, from the window manager's own
+  properties (EWMH), with a preview cut from the screen's picture. A window that
+  another covers shows what is on screen there. `queijo --list-windows` prints
+  what window mode would offer.
 - Screen recording through the desktop portal (ScreenCast and PipeWire) on KDE
   Plasma and any other desktop that has it, with `gst-launch-1.0` doing the
   encoding. You pick the screen in the desktop's own dialog the first time, and

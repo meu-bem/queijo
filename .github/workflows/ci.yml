@@ -95,7 +95,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 \
-            imagemagick bc x11-xserver-utils ffmpeg
+            imagemagick bc x11-xserver-utils ffmpeg openbox x11-utils
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -105,6 +105,7 @@ jobs:
         env:
           QUEIJO_REQUIRE_FROZEN: "1"
           QUEIJO_REQUIRE_RECORDING: "1"
+          QUEIJO_REQUIRE_WM: "1"
         run: xvfb-run -a -s "-screen 0 1280x800x24" scripts/smoke-test.sh target/release/queijo
 
   wlroots:

@@ -88,6 +88,21 @@ fn main() {
         return;
     }
 
+    if args.list_windows {
+        match windows::find(desktop::Env::current()) {
+            Some((source, list)) => {
+                println!("{} ({} windows, topmost first)", source.name(), list.len());
+                for w in list {
+                    let [x, y, width, height] = w.frame;
+                    let mark = if w.focused { "*" } else { " " };
+                    println!("{mark} {width}x{height}+{x}+{y}  {}  {}", w.app, w.title);
+                }
+            }
+            None => println!("no window list: window mode offers only the focused window"),
+        }
+        return;
+    }
+
     // Pressing the hotkey again while we run stops a recording instead of
     // stacking a second overlay on top of the first.
     let Some(_instance) = single_instance() else {

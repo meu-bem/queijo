@@ -149,6 +149,7 @@ queijo -d 3             # espera 3 segundos antes
 queijo -o ~/Capturas    # salva as imagens nessa pasta desta vez
 queijo --stop           # para uma gravação
 queijo --settings       # abre as configurações
+queijo --list-windows   # as janelas que o modo janela ofereceria
 queijo --doctor         # o que o Queijo encontrou no seu sistema e o que falta
 ```
 

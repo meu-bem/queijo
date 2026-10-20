@@ -72,6 +72,36 @@ else
     echo "skipping the recording check: ffmpeg or ffprobe is missing"
 fi
 
+# Window mode asks the window manager for the windows. Start a real one (openbox) with
+# two windows and see that Queijo lists them, topmost and focused first, with the manager's
+# frames around them. Needs openbox and xmessage.
+# QUEIJO_REQUIRE_WM=1 makes a missing tool a failure (CI does).
+if command -v openbox >/dev/null 2>&1 && command -v xmessage >/dev/null 2>&1; then
+    openbox > "$work/openbox.log" 2>&1 &
+    wm=$!
+    sleep 2
+    xmessage -geometry 300x120+100+150 -title "First window" hello &
+    first=$!
+    sleep 1
+    xmessage -geometry 400x140+400+300 -title "Second window" world &
+    second=$!
+    sleep 2
+    listing=$("$bin" --list-windows)
+    kill "$first" "$second" "$wm" 2>/dev/null || true
+    wait "$first" "$second" "$wm" 2>/dev/null || true
+    echo "$listing"
+    case "$listing" in
+        *"the X11 window manager (2 windows, topmost first)"*"* "*"+400+300  Xmessage  Second window"*"+100+150  Xmessage  First window"*) ;;
+        *) echo "FAIL (window list): not the two windows, topmost first"; exit 1 ;;
+    esac
+    echo "ok (window list)"
+elif [ -n "${QUEIJO_REQUIRE_WM:-}" ]; then
+    echo "FAIL: openbox and xmessage are needed to check the window list"
+    exit 1
+else
+    echo "skipping the window list check: openbox or xmessage is missing"
+fi
+
 # The editor on a screen with no compositor (this virtual one has none) can't be
 # see-through, so it must show a still picture of the screen, dimmed, and not black.
 # Needs ImageMagick (to paint and to look).

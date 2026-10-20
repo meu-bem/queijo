@@ -73,6 +73,12 @@ chosen screen is what is recorded, that a remembered screen is not asked again, 
 area on another screen records the whole picked one with a notification, and fractional
 scaling (the recording is made at the screen's logical size).
 
+Window mode on X11 was tried with openbox on a virtual screen: the list, its order, the
+focus and the frames match what the window manager does, and the picker shows previews cut
+from the screen's picture. Other window managers (and their `_NET_FRAME_EXTENTS`, for
+example with client-side decorations) have not been tried. A window that another covers
+shows what is on screen there, because X11 has no way to ask for its hidden pixels.
+
 ## What to try in each environment
 
 1. **Overlay**: the screen dims, the live screen shows through, and the selection

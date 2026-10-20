@@ -145,6 +145,7 @@ queijo -d 3             # wait 3 seconds first
 queijo -o ~/Shots       # save screenshots there this time
 queijo --stop           # stop a recording
 queijo --settings       # open the settings
+queijo --list-windows   # the windows that window mode would offer
 queijo --doctor         # what Queijo found on your system, and what is missing
 ```
 
