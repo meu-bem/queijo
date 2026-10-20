@@ -18,10 +18,19 @@ const INTERFACE: &str = "org.kde.KWin.ScreenShot2";
 
 /// A picture of the whole workspace (every monitor), at the monitors' own resolution.
 pub fn screenshot() -> Result<RgbaImage, String> {
-    screenshot_from(&Connection::session().map_err(|e| e.to_string())?, DESTINATION)
+    let conn = Connection::session().map_err(|e| e.to_string())?;
+    capture(&conn, DESTINATION, "CaptureWorkspace", &[("native-resolution", true)])
 }
 
-fn screenshot_from(conn: &Connection, destination: &str) -> Result<RgbaImage, String> {
+/// The window that has the focus, with its title bar and without its shadow.
+pub fn active_window() -> Result<RgbaImage, String> {
+    let conn = Connection::session().map_err(|e| e.to_string())?;
+    let options = [("native-resolution", true), ("include-decoration", true), ("include-shadow", false)];
+    capture(&conn, DESTINATION, "CaptureActiveWindow", &options)
+}
+
+/// Asks `method` for a picture, with `options`, and reads it from the pipe.
+fn capture(conn: &Connection, destination: &str, method: &str, options: &[(&str, bool)]) -> Result<RgbaImage, String> {
     let (mut reader, writer) = std::io::pipe().map_err(|e| e.to_string())?;
     let writer = OwnedFd::from(writer);
     // KWin finishes writing before it answers, and a pipe holds little: read meanwhile.
@@ -30,10 +39,8 @@ fn screenshot_from(conn: &Connection, destination: &str) -> Result<RgbaImage, St
         reader.read_to_end(&mut data).map(|_| data)
     });
 
-    let mut options: HashMap<&str, Value> = HashMap::new();
-    options.insert("native-resolution", true.into());
-    let reply =
-        conn.call_method(Some(destination), PATH, Some(INTERFACE), "CaptureWorkspace", &(options, Fd::from(&writer)));
+    let options: HashMap<&str, Value> = options.iter().map(|&(key, on)| (key, on.into())).collect();
+    let reply = conn.call_method(Some(destination), PATH, Some(INTERFACE), method, &(options, Fd::from(&writer)));
     // Our end must be closed, or the reader never sees the end of the data.
     drop(writer);
     let reply = reply.map_err(|e| e.to_string())?;
@@ -116,13 +123,14 @@ mod tests {
     }
 
     /// Plays KWin: takes the pipe from the call, writes `data` into it, and answers.
-    fn fake_kwin(bus: &PrivateBus, data: Vec<u8>, format: u32) -> std::thread::JoinHandle<()> {
+    fn fake_kwin(bus: &PrivateBus, data: Vec<u8>, format: u32) -> std::thread::JoinHandle<HashMap<String, OwnedValue>> {
         let service = Builder::address(bus.address.as_str()).unwrap().name(DESTINATION).unwrap().build().unwrap();
         let calls = MessageIterator::from(service.clone());
         std::thread::spawn(move || {
             for message in calls {
                 let message = message.unwrap();
-                if message.header().member().map(|m| m.as_str()) != Some("CaptureWorkspace") {
+                let member = message.header().member().map(|m| m.to_string());
+                if !matches!(member.as_deref(), Some("CaptureWorkspace" | "CaptureActiveWindow")) {
                     continue;
                 }
                 let (options, pipe): (HashMap<String, OwnedValue>, BusFd) = message.body().deserialize().unwrap();
@@ -141,8 +149,9 @@ mod tests {
                 results.insert("stride", 12u32.into());
                 results.insert("format", format.into());
                 service.reply(&message.header(), &(results,)).unwrap();
-                return;
+                return options;
             }
+            unreachable!("the client never called")
         })
     }
 
@@ -150,7 +159,7 @@ mod tests {
     fn takes_a_screenshot_through_a_pipe() {
         let Some(bus) = PrivateBus::start() else { return };
         let kwin = fake_kwin(&bus, argb32([[255, 0, 0], [0, 255, 0], [0, 0, 255], [9, 9, 9]]), 6);
-        let image = screenshot_from(&bus.connect(), DESTINATION).unwrap();
+        let image = capture(&bus.connect(), DESTINATION, "CaptureWorkspace", &[("native-resolution", true)]).unwrap();
         kwin.join().unwrap();
         assert_eq!(image.dimensions(), (2, 2));
         assert_eq!(image.get_pixel(0, 0).0, [255, 0, 0, 255]);
@@ -159,15 +168,28 @@ mod tests {
     }
 
     #[test]
+    fn asks_for_the_active_window_with_its_title_bar_and_no_shadow() {
+        let Some(bus) = PrivateBus::start() else { return };
+        let kwin = fake_kwin(&bus, argb32([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]]), 5);
+        let options = [("native-resolution", true), ("include-decoration", true), ("include-shadow", false)];
+        let image = capture(&bus.connect(), DESTINATION, "CaptureActiveWindow", &options).unwrap();
+        assert_eq!(image.get_pixel(1, 1).0, [10, 11, 12, 255]);
+        let sent = kwin.join().unwrap();
+        assert!(bool::try_from(sent["include-decoration"].try_clone().unwrap()).unwrap());
+        assert!(!bool::try_from(sent["include-shadow"].try_clone().unwrap()).unwrap());
+    }
+
+    #[test]
     fn an_unsupported_format_is_an_error_not_garbage() {
         let Some(bus) = PrivateBus::start() else { return };
         let _kwin = fake_kwin(&bus, argb32([[0; 3]; 4]), 99);
-        assert!(screenshot_from(&bus.connect(), DESTINATION).unwrap_err().contains("format 99"));
+        let err = capture(&bus.connect(), DESTINATION, "CaptureWorkspace", &[("native-resolution", true)]).unwrap_err();
+        assert!(err.contains("format 99"), "{err}");
     }
 
     #[test]
     fn without_kwin_it_is_an_error() {
         let Some(bus) = PrivateBus::start() else { return };
-        assert!(screenshot_from(&bus.connect(), DESTINATION).is_err());
+        assert!(capture(&bus.connect(), DESTINATION, "CaptureWorkspace", &[]).is_err());
     }
 }

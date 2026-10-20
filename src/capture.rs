@@ -152,8 +152,16 @@ impl Backend {
                 Ok(Capture { desktop, shell: None, window: None, cursor })
             }
             Backend::KWin => {
+                // KDE can't list windows, so the focused one is taken now, before ours take the
+                // focus, and found again in the picture of the screen.
+                let window = if window_taken.load(Ordering::Acquire) {
+                    None
+                } else {
+                    crate::kwin::active_window().map_err(|e| eprintln!("queijo: no active window from KWin ({e})")).ok()
+                };
+                window_taken.store(true, Ordering::Release);
                 let desktop = crate::kwin::screenshot()?;
-                Ok(Capture { desktop, shell: None, window: None, cursor: None })
+                Ok(Capture { desktop, shell: None, window, cursor: None })
             }
             // -b: no window, -n: no notification, -f: every monitor, -o: write to this file.
             Backend::Spectacle => run("spectacle", &["-b", "-n", "-f", "-o"], file).and_then(|_| tool_shot(file)),

@@ -28,6 +28,10 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- On KDE Plasma with Wayland, window mode captures the active window through KWin
+  (it takes the picture before the editor takes the focus, and finds it on the
+  screen). KDE offers no way to list the other windows without a script run inside
+  KWin, so there is no picker there; on X11 the KDE desktop has the full list.
 - Window mode lists every window on Sway (through `swaymsg`) and on Hyprland (through
   `hyprctl`), with a preview cut from the screen's picture. The Hyprland side is written
   from the fields `hyprctl` is documented to give and has not met a running Hyprland.

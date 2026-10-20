@@ -73,6 +73,14 @@ chosen screen is what is recorded, that a remembered screen is not asked again, 
 area on another screen records the whole picked one with a notification, and fractional
 scaling (the recording is made at the screen's logical size).
 
+Window mode on KDE Plasma with Wayland only has the active window (`CaptureActiveWindow`,
+documented since version 2 of KWin's screenshot interface; tested against a stand-in, never a
+real KWin). Listing the others would take a script loaded into KWin (`org.kde.KWin /Scripting`
+`loadScript`) that reports back over D-Bus, and `CaptureWindow` takes a window identifier that
+only such a script can give; that was judged too much to write without a Plasma to try it on, so
+it is left as a possible next step. Things to look at: that the active window is found on a
+screen with fractional scaling, and that its title bar is in the picture.
+
 Window mode on Sway was tried on a headless Sway with a real window: the list and the picker
 work. On Hyprland it has only been checked against JSON written by hand from the fields
 `hyprctl -j clients` and `-j monitors` are known to have (focus order stands in for stacking
