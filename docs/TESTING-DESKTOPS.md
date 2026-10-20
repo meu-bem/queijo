@@ -109,6 +109,13 @@ whether `Meta.WindowActor.get_image` still exists (newer shells use `paint_to_co
 to look at on a GNOME 45 to 49: that `queijo --doctor` finds the extension after login, the
 screenshot, the window picker with its previews, and the recording indicator.
 
+Shortcuts on Xfce (`src/shortcut/xfce.rs`) were run against the real `xfconf-query` and `xfconfd`
+(from the `xfconf` package) on a bus of their own, with the shortcuts channel filled the way Xfce
+fills it, so the property names, the listing and the quoting of commands are right. What was not
+seen is Xfce itself reloading: that a shortcut written this way works at once and that a custom
+shortcut for a key really wins over the default (`override`). Things to look at: Print, with Xfce's
+screenshot tool on it, and a shortcut with a modifier.
+
 Shortcuts on Cinnamon and MATE (`src/shortcut/lists.rs`) are written from how those desktops
 keep their custom shortcuts (the schema and key names, a list of `customN` names and keys held in
 a list on Cinnamon, `customN` found by trying them and an `action` key on MATE, `disabled` for a

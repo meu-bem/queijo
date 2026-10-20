@@ -28,6 +28,9 @@ All notable changes are documented here. The format follows
   `notify-send`. It stays as a fallback and is now recommended, not required.
 
 ### Added
+- Global shortcuts can be set in the settings on Xfce too, through `xfconf-query`. A key that
+  the user already made a custom shortcut for is refused (it would replace that one); what Xfce
+  ships for a key (its screenshot tool on Print) is replaced by Queijo's.
 - Global shortcuts can be set in the settings on Cinnamon and MATE, not only GNOME. They are
   written the way each desktop keeps its custom shortcuts, and the desktop's own screenshot
   shortcuts that use the same key are switched off. That is written from how those desktops
