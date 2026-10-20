@@ -400,6 +400,71 @@ mod tests {
         })
     }
 
+    /// A desktop picture where each monitor is its own flat colour.
+    fn painted(width: u32, height: u32, parts: &[(u32, u32, u32, u32, [u8; 4])]) -> RgbaImage {
+        let mut img = RgbaImage::new(width, height);
+        for &(x, y, w, h, color) in parts {
+            for py in y..(y + h).min(height) {
+                for px in x..(x + w).min(width) {
+                    img.put_pixel(px, py, Rgba(color));
+                }
+            }
+        }
+        img
+    }
+
+    #[test]
+    fn splits_a_desktop_at_one_and_a_half_times() {
+        // Logical 1280x720 and 1920x1080 side by side, taken at 1.5x: 4800x1620 pixels.
+        let monitors = [monitor(0, 0, 1280, 720), monitor(1280, 0, 1920, 1080)];
+        let left = [255, 0, 0, 255];
+        let right = [0, 0, 255, 255];
+        let desktop = painted(4800, 1620, &[(0, 0, 1920, 1080, left), (1920, 0, 2880, 1620, right)]);
+        let parts = split(&desktop, &monitors);
+        assert_eq!(parts[0].dimensions(), (1920, 1080));
+        assert_eq!(parts[1].dimensions(), (2880, 1620));
+        // Every pixel of each piece is its own monitor's colour: no bleeding across the seam.
+        assert!(parts[0].pixels().all(|p| p.0 == left));
+        assert!(parts[1].pixels().all(|p| p.0 == right));
+    }
+
+    #[test]
+    fn splits_a_desktop_when_the_scale_does_not_divide_evenly() {
+        // 1366 + 1920 logical pixels at 1.25x is 4107.5; the picture rounds to 4108.
+        let monitors = [monitor(0, 0, 1366, 768), monitor(1366, 0, 1920, 1080)];
+        let desktop = painted(4108, 1350, &[(0, 0, 1708, 960, [1, 1, 1, 255]), (1708, 0, 2400, 1350, [2, 2, 2, 255])]);
+        let parts = split(&desktop, &monitors);
+        let (a, b) = (&parts[0], &parts[1]);
+        assert!((a.width() as i32 - 1708).abs() <= 1 && (a.height() as i32 - 960).abs() <= 1, "{:?}", a.dimensions());
+        assert!((b.width() as i32 - 2400).abs() <= 1 && (b.height() as i32 - 1350).abs() <= 1, "{:?}", b.dimensions());
+        // Away from the seam each piece is its own colour; at it, off by a pixel at most.
+        assert_eq!(a.get_pixel(10, 10).0, [1, 1, 1, 255]);
+        assert_eq!(b.get_pixel(b.width() - 10, 10).0, [2, 2, 2, 255]);
+        assert_eq!(b.get_pixel(10, b.height() - 10).0, [2, 2, 2, 255]);
+    }
+
+    #[test]
+    fn splits_monitors_stacked_and_left_of_the_origin_when_scaled() {
+        // A monitor to the left (negative x) and one below, at 2x.
+        let monitors = [monitor(-800, 0, 800, 600), monitor(0, 0, 1024, 768), monitor(0, 768, 1024, 400)];
+        let desktop = painted(
+            3648,
+            2336,
+            &[
+                (0, 0, 1600, 1200, [10, 0, 0, 255]),
+                (1600, 0, 2048, 1536, [0, 10, 0, 255]),
+                (1600, 1536, 2048, 800, [0, 0, 10, 255]),
+            ],
+        );
+        let parts = split(&desktop, &monitors);
+        assert_eq!(parts[0].dimensions(), (1600, 1200));
+        assert_eq!(parts[1].dimensions(), (2048, 1536));
+        assert_eq!(parts[2].dimensions(), (2048, 800));
+        assert_eq!(parts[0].get_pixel(5, 5).0, [10, 0, 0, 255]);
+        assert_eq!(parts[1].get_pixel(5, 5).0, [0, 10, 0, 255]);
+        assert_eq!(parts[2].get_pixel(5, 5).0, [0, 0, 10, 255]);
+    }
+
     #[test]
     fn tries_the_gnome_shell_first_then_the_tools() {
         let wayland = Env { session: Session::Wayland, desktop: Desktop::Gnome, compositing: true };
