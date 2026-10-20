@@ -23,8 +23,15 @@ not tried here).
   and stays up. (That branch is end-of-life, so a real manifest would aim at a newer runtime.)
   What has still not been seen is the editor's full-screen overlay and the portal's answer to a
   sandboxed screenshot request, both of which need a person at the screen.
-- Recommendation: do it only if a Flathub presence is wanted, as the portals-only shape
-  (option A below). It is a degraded experience, not a port.
+- On this GNOME, the portals-only shape cannot take a screenshot: the portal refused the sandboxed
+  request (tested, after 11 seconds). Option A would first need another way to capture (the
+  portal's interactive mode, which shows GNOME's own screenshot interface, or a frame from the
+  ScreenCast portal, which asks every time unless the remembered token covers it), and neither is
+  built or tried.
+- Recommendation, after that result: **do not start a Flatpak now.** With the screenshot refused,
+  the window picker gone, the shortcuts by hand and the stop-by-shortcut needing a redesign, the
+  Flatpak would be a different, weaker product than the native packages, which already cover the
+  distributions tested. Revisit it if there is demand, starting from the screenshot question.
 
 ## What was tried
 
@@ -44,6 +51,7 @@ and bus filtering as an installed app. Nothing was installed.
 | Can `gsettings` write the desktop's shortcuts, or enable the extension? | No: the sandbox has no `org.gnome.shell` schema (`No such schema`), let alone the host's dconf. | tested |
 | Can a second instance reach the first one's single-instance socket? | **No** in the default sandbox (`Connection refused`); yes with `--share=network`. | tested |
 | Does a window open? | **Yes, once the GL extension is there.** Without `org.freedesktop.Platform.GL.default` for the runtime (this machine had none) the settings window failed with `Found no glutin configs ... provided display handle is not supported`. After installing `org.freedesktop.Platform.GL.default//24.08` for the user (with the user's agreement), the same command opened the window and it stayed up until it was stopped, with nothing on stderr. Only the settings window was tried, not the full-screen editor, as that would dim the real screens and ask the portal for a screenshot. | tested |
+| What does the portal answer to a sandboxed app's screenshot request? | **A refusal, after 11 seconds**: `queijo --quick` in the sandbox (app id `app.queijo.Test`, the same GNOME 42 desktop) went Shell (`ServiceUnknown`), extension (`ServiceUnknown`), portal ("the portal did not allow the screenshot"), `gnome-screenshot` (not in the sandbox), and saved nothing. The same refusal and delay as the native build's. Whether a permission dialog showed up and went unanswered during those seconds was not observed. | tested |
 | Does a file written by the host (the Shell, the extension) reach the sandbox? | Not tested: `flatpak build` does not create the per-app runtime folder. | docs |
 
 ## Feature by feature
@@ -54,7 +62,7 @@ reviewers normally refuse.
 | Feature | In the sandbox | What it needs |
 | --- | --- | --- |
 | The editor: dimming, selecting, annotating, copying, saving | Probably as native (GL unverified). Code is the same; it needs `--socket=wayland`, `--device=dri`. | portals only |
-| Screenshot, GNOME | Portal only. The Shell service is unreachable (tested). Whether the portal accepts Queijo's non-interactive request is unknown for a sandboxed app: the native one on GNOME 42 was refused after ten seconds (see `docs/TESTING-DESKTOPS.md`); GNOME may ask a sandboxed app once and remember. | portal; or host access to `org.gnome.Shell` for the extension's `Screenshot` (needed on GNOME 49) |
+| Screenshot, GNOME | Portal only. The Shell service is unreachable (tested), and **GNOME 42's portal refused Queijo's non-interactive request** from the sandbox as it does from the native build (tested). So on this GNOME a portals-only Queijo takes no screenshots at all until it asks differently. Newer GNOME versions may behave otherwise (not tried). | portal; or host access to `org.gnome.Shell` for the extension's `Screenshot` (needed on GNOME 49) |
 | Screenshot, KDE | Portal. KWin's own service answers only programs whose `.desktop` it finds by executable path, which a sandboxed process does not have the same way. Expected not to work (docs/code, untested). | portal |
 | Screenshot, Sway and Hyprland | Portal, or `grim` bundled (it speaks a Wayland protocol and the Wayland socket exposes it). | portal; or bundle `grim` |
 | Screenshot, X11 | Native: it reads the X server's root window. | `--socket=x11` (not only `fallback-x11`) |
@@ -168,11 +176,12 @@ probed and may differ).
 3. (Settled.) The GL extension was installed for the user and the window opens. It can be removed
    with `flatpak --user uninstall org.freedesktop.Platform.GL.default//24.08` and
    `flatpak --user remote-delete flathub`.
-4. Still open, and needs someone at the screen: run the full editor in the sandbox and see what the
-   portal answers to its screenshot request (a prompt, a refusal, or silence), because that decides
-   how good a portals-only Queijo feels on GNOME.
+4. (Settled.) The portal's answer to a sandboxed screenshot request on this GNOME is a refusal after 11
+   seconds. What is not known is whether a newer GNOME, or KDE, answers otherwise, or whether a
+   permission dialog was shown meanwhile.
 
-If the answer to the first question is yes, the order would be: the open test in 4; the small code
-changes above (they do not depend on Flatpak existing); the manifest, the AppStream file and the
-cargo sources, on a runtime that is not end-of-life; a test on GNOME and KDE with a real
-installation; only then submit.
+If the answer to the first question is still yes, the order would be: a capture path that the
+portal accepts (the interactive portal or a ScreenCast frame), tried on GNOME and KDE; the small
+code changes above (they do not depend on Flatpak existing); the manifest, the AppStream file and
+the cargo sources, on a runtime that is not end-of-life; a test on a real installation; only then
+submit.
