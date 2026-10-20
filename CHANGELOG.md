@@ -6,6 +6,21 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-20
+
+### Changed
+- The editor no longer covers the screen with a frozen copy of it: the live
+  screen shows through, only dimmed around the selection. What gets copied or
+  saved is still the screen as it was when the shortcut was pressed.
+- The editor opens sooner: the screen is captured while its windows start up.
+- The settings window draws its own title bar, with round minimize, maximize
+  and close buttons, instead of the bare frame GNOME left it with. It can still
+  be dragged, maximized with a double click and resized from its edges.
+
+### Fixed
+- On Wayland the editor renders in software, so GNOME 42 composites its
+  see-through windows instead of showing them black.
+
 ## [0.1.0] - 2026-10-16
 
 First release.

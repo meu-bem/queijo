@@ -42,18 +42,47 @@ fn finish(shot: Result<Decoder, String>) -> Option<RgbaImage> {
 /// Grabs the whole desktop (every monitor) as one image. Also returns the
 /// Shell connection when GNOME Shell did the capture, for follow-up requests.
 pub fn capture() -> Result<(RgbaImage, Option<Shell>), String> {
+    let shot = capture_with_window(&AtomicBool::new(true))?;
+    Ok((shot.desktop, shot.shell))
+}
+
+/// What `capture_with_window` grabbed.
+pub struct Capture {
+    pub desktop: RgbaImage,
+    pub shell: Option<Shell>,
+    /// The focused window, when it was asked for.
+    pub window: Option<RgbaImage>,
+}
+
+/// Like `capture`, but when `window_taken` is still false it first grabs the
+/// focused window (it has to happen before our own windows take the focus) and
+/// sets the flag once the Shell has it. The Shell serves one request per
+/// sender at a time, so the two go one after the other.
+pub fn capture_with_window(window_taken: &AtomicBool) -> Result<Capture, String> {
     let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     let file = dir.join(format!("queijo-{}-desktop.png", std::process::id()));
 
-    match shell_capture(&file) {
-        Ok((desktop, conn)) => Ok((desktop, Some(Shell { conn, dir }))),
+    let shell = connect().map(|conn| Shell { conn, dir });
+    let window = match &shell {
+        Some(shell) if !window_taken.load(Ordering::Acquire) => shell.window(window_taken),
+        _ => None,
+    };
+    window_taken.store(true, Ordering::Release);
+
+    let desktop = shell
+        .as_ref()
+        .ok_or_else(|| "no session bus".to_string())
+        .and_then(|shell| shell_shot(&shell.conn, "Screenshot", &file, |f| (false, false, f).into()))
+        .and_then(|h| h.join().map_err(|_| "decoder panicked".to_string())?);
+    match desktop {
+        Ok(desktop) => Ok(Capture { desktop, shell, window }),
         Err(e) => {
             eprintln!("queijo: GNOME Shell screenshot failed ({e}), falling back to gnome-screenshot");
             let result = run("gnome-screenshot", &["-f"], &file).or_else(|e| {
                 eprintln!("queijo: gnome-screenshot failed ({e}), trying grim");
                 run("grim", &[], &file)
             });
-            Ok((result.and_then(|_| load(&file))?, None))
+            Ok(Capture { desktop: result.and_then(|_| load(&file))?, shell: None, window: None })
         }
     }
 }
@@ -64,17 +93,16 @@ fn load(path: &Path) -> Result<RgbaImage, String> {
     Ok(image?.to_rgba8())
 }
 
-/// Asks GNOME Shell directly: no flash, no shutter sound, and ~5x faster than
-/// spawning gnome-screenshot. The Shell only answers a short allowlist of bus
-/// names, so we borrow gnome-screenshot's while the connection lives.
-fn shell_capture(path: &Path) -> Result<(RgbaImage, zbus::blocking::Connection), String> {
+/// A session bus connection GNOME Shell takes screenshot requests from: no
+/// flash, no shutter sound, and ~5x faster than spawning gnome-screenshot. The
+/// Shell only answers a short allowlist of bus names, so we borrow
+/// gnome-screenshot's while the connection lives.
+fn connect() -> Option<zbus::blocking::Connection> {
     use zbus::fdo::RequestNameFlags;
 
-    let conn = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
+    let conn = zbus::blocking::Connection::session().map_err(|e| eprintln!("queijo: session bus: {e}")).ok()?;
     let _ = conn.request_name_with_flags("org.gnome.Screenshot", RequestNameFlags::DoNotQueue.into());
-    let desktop = shell_shot(&conn, "Screenshot", path, |f| (false, false, f).into())?;
-    let desktop = desktop.join().map_err(|_| "decoder panicked".to_string())??;
-    Ok((desktop, conn))
+    Some(conn)
 }
 
 type Decoder = std::thread::JoinHandle<Result<RgbaImage, String>>;

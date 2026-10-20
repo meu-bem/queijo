@@ -1,6 +1,6 @@
 [package]
 name = "queijo"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Screenshot, screencast and GIF tool for GNOME on Linux"
 authors = ["Mateus Santos <a.mateussm1.5@gmail.com>"]
@@ -34,7 +34,7 @@ license-file = ["LICENSE", "0"]
 # Made by scripts/build-packages.sh from CHANGELOG.md.
 changelog = "target/debian-changelog"
 extended-description = """\
-Queijo freezes the screen on every monitor so you can select an area, a whole \
+Queijo dims every monitor so you can select an area, a whole \
 screen or a window, annotate it and copy or save it. It also records \
 screencasts and animated GIFs, and has a settings window for shortcuts, \
 folders, file names and language (English and Portuguese). \

@@ -80,9 +80,18 @@ impl Screen {
     }
 }
 
-/// The background lookup of the focused window (its rectangle, in desktop coordinates)
-/// and the flag set once the Shell has the window's picture.
-pub type WindowLookup = (Option<JoinHandle<Option<[i32; 4]>>>, Arc<AtomicBool>);
+/// What the background capture hands over once it is done.
+pub struct Captured {
+    pub desktop: Arc<RgbaImage>,
+    /// One picture per screen, in the same order as the screens.
+    pub images: Vec<RgbaImage>,
+    /// The focused window in desktop coordinates (fallback without the Shell extension).
+    pub window: Option<[i32; 4]>,
+    pub pointer_job: Option<PointerJob>,
+}
+
+/// The screen capture, running while our windows start up.
+pub type CaptureJob = JoinHandle<Result<Captured, String>>;
 
 /// Grabs the desktop again with the pointer drawn in, returning it per screen.
 /// It flags the bool once the pixels are taken.
@@ -409,7 +418,9 @@ pub struct QueijoApp {
     screens: Vec<Screen>,
     cfg: Config,
     /// The full capture and where it sits on the desktop (pixelate samples it).
+    /// Empty until `capture_job` is done.
     desktop: Arc<RgbaImage>,
+    capture_job: Option<CaptureJob>,
     desktop_rect: Rect,
     /// The part of the desktop our windows cover.
     bounds: Rect,
@@ -450,13 +461,15 @@ pub struct QueijoApp {
     shots_job: Option<JoinHandle<Vec<WindowShot>>>,
     picker_since: Option<f64>,
     picker_hover: Option<usize>,
-    window_job: Option<JoinHandle<Option<[i32; 4]>>>,
+    /// Windows picked from the picker. They may have been covered, so inside
+    /// the selection we show their captured pixels instead of the live screen.
+    front: Vec<Rect>,
     /// Set once the Shell has the focused window's picture.
     window_taken: Arc<AtomicBool>,
     pointer_job: Option<PointerJob>,
     pointer_thread: Option<JoinHandle<Vec<Option<RgbaImage>>>>,
     /// Set once the pointer capture is requested; until it has had time to grab
-    /// the screen we show only the frozen frame.
+    /// the screen our windows stay fully transparent.
     pointer_requested: Arc<AtomicBool>,
     hold_until: Option<f64>,
     /// The shortcut that launches Queijo; pressing it again stops a recording.
@@ -486,10 +499,9 @@ impl QueijoApp {
     pub fn new(
         screens: Vec<Screen>,
         cfg: Config,
-        (desktop, desktop_rect): (Arc<RgbaImage>, Rect),
-        (window_job, window_taken): WindowLookup,
+        (capture_job, desktop_rect): (CaptureJob, Rect),
+        window_taken: Arc<AtomicBool>,
         shots_job: Option<JoinHandle<Vec<WindowShot>>>,
-        pointer_job: Option<PointerJob>,
     ) -> Self {
         let bounds = screens.iter().map(Screen::global).reduce(|a, b| a.union(b)).unwrap_or(desktop_rect);
         let stop_key = Arc::new(Mutex::new(None));
@@ -497,7 +509,8 @@ impl QueijoApp {
         std::thread::spawn(move || *slot.lock().unwrap() = crate::shortcut::find());
         Self {
             screens,
-            desktop,
+            desktop: Arc::new(RgbaImage::new(0, 0)),
+            capture_job: Some(capture_job),
             desktop_rect,
             bounds,
             selection: None,
@@ -538,10 +551,10 @@ impl QueijoApp {
             shots_job,
             picker_since: None,
             picker_hover: None,
-            window_job,
+            front: Vec::new(),
             window_taken,
             pointer_requested: Arc::new(AtomicBool::new(false)),
-            pointer_job,
+            pointer_job: None,
             pointer_thread: None,
             hold_until: None,
             stop_key,
@@ -566,7 +579,7 @@ impl QueijoApp {
     fn has_window(&self) -> bool {
         self.picker
             // Still being located: allow the mode, the highlight shows up when ready.
-            || self.window_job.is_some()
+            || self.capture_job.is_some()
             || self.visible_window().is_some()
     }
 
@@ -664,6 +677,7 @@ impl QueijoApp {
         if let Some(img) = self.shots[i].image.take() {
             self.bring_to_front(frame, &img);
             self.shots[i].image = Some(img);
+            self.front.push(frame);
         }
         self.selection = Some(frame.intersect(self.bounds));
         self.sel_done_at = now;
@@ -709,17 +723,6 @@ impl QueijoApp {
         })
     }
 
-    /// Without the Shell extension: waits for the focused-window lookup if it is still running.
-    fn finish_window_lookup(&mut self) {
-        if let Some(job) = self.window_job.take() {
-            self.window = job
-                .join()
-                .ok()
-                .flatten()
-                .map(|[x, y, w, h]| Rect::from_min_size(pos2(x as f32, y as f32), vec2(w as f32, h as f32)));
-        }
-    }
-
     /// The focused window clipped to our screens, if a meaningful part of it is on them.
     fn visible_window(&self) -> Option<Rect> {
         let visible = self.window?.intersect(self.bounds);
@@ -734,12 +737,9 @@ impl QueijoApp {
             if let Some(i) = choice.or((!self.shots.is_empty()).then_some(0)) {
                 self.pick(i, now);
             }
-        } else {
-            self.finish_window_lookup();
-            if let Some(w) = self.visible_window() {
-                self.selection = Some(w);
-                self.sel_done_at = now;
-            }
+        } else if let Some(w) = self.visible_window() {
+            self.selection = Some(w);
+            self.sel_done_at = now;
         }
     }
 
@@ -1080,20 +1080,11 @@ impl QueijoApp {
             std::process::exit(0);
         }
 
-        let show_pointer = self.pointer && !self.video();
-        let screen = &mut self.screens[idx];
-        let name = format!("screen-{}", screen.monitor.name);
-        let texture = match &screen.pointer_image {
-            Some(img) if show_pointer => {
-                screen.pointer_texture.get_or_insert_with(|| load_texture(&ctx, &name, img)).id()
-            }
-            _ => screen.texture.get_or_insert_with(|| load_texture(&ctx, &name, &screen.image)).id(),
-        };
-        let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
-        if self.hold_until.is_some_and(|t| now < t) {
-            ui.painter().image(texture, rect, uv, Color32::WHITE);
+        if self.capture_job.is_some() || self.hold_until.is_some_and(|t| now < t) {
+            // Still capturing: stay invisible (and keep the normal cursor) so
+            // none of it ends up in the picture.
             ctx.set_cursor_icon(CursorIcon::Default);
-            ctx.request_repaint();
+            ctx.request_repaint_after(Duration::from_millis(15));
             return;
         }
         let screen = &mut self.screens[idx];
@@ -1122,10 +1113,26 @@ impl QueijoApp {
             }
         }
 
-        // Frozen screen + annotations.
+        // The live screen shows through; only the readback for an export (which
+        // needs real pixels under the drawings) and picked windows, which may
+        // have been covered, show the captured frame, and only inside the selection.
         let painter = ui.painter().clone();
-        painter.image(texture, rect, uv, Color32::WHITE);
         let sel = self.selection.map(|s| s.translate(offset));
+        let exporting = self.export.as_ref().is_some_and(|e| e.involved.contains(&idx));
+        if let Some(s) = sel {
+            let frozen: Vec<Rect> = if exporting {
+                vec![s]
+            } else {
+                self.front.iter().map(|f| f.translate(offset).intersect(s)).filter(|f| f.is_positive()).collect()
+            };
+            if !frozen.is_empty() {
+                let texture = self.frozen_texture(&ctx, idx);
+                let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
+                for r in frozen {
+                    painter.with_clip_rect(r).image(texture, rect, uv, Color32::WHITE);
+                }
+            }
+        }
         if !self.video() {
             let clip = painter.with_clip_rect(sel.unwrap_or(rect).intersect(rect));
             for a in self.annotations.iter().chain(&self.current) {
@@ -1134,8 +1141,12 @@ impl QueijoApp {
             self.paint_text_draft(&ctx, &painter, offset, now);
         }
 
-        if self.export.as_ref().is_some_and(|e| e.involved.contains(&idx)) {
-            // Keep this frame clean (no dimming, no chrome) until the GPU readback arrives.
+        if exporting {
+            // Keep the selection clean (no chrome over it) until the GPU readback arrives.
+            if let Some(s) = sel {
+                let dim = Color32::from_black_alpha((255.0 * DIM) as u8);
+                paint_around(&painter, rect, s.intersect(rect), dim);
+            }
             self.request_capture(&ctx, idx);
             ctx.request_repaint();
             ctx.set_cursor_icon(CursorIcon::Default);
@@ -1159,12 +1170,7 @@ impl QueijoApp {
         let strength = DIM + (PICKER_DIM - DIM) * picker_t;
         let dim = Color32::from_black_alpha((255.0 * strength * intro * dim_alpha) as u8);
         match sel.or(target).map(|s| s.intersect(rect)).filter(|s| s.is_positive()) {
-            Some(s) => {
-                painter.rect_filled(Rect::from_min_max(rect.min, pos2(rect.max.x, s.min.y)), 0, dim);
-                painter.rect_filled(Rect::from_min_max(pos2(rect.min.x, s.max.y), rect.max), 0, dim);
-                painter.rect_filled(Rect::from_min_max(pos2(rect.min.x, s.min.y), pos2(s.min.x, s.max.y)), 0, dim);
-                painter.rect_filled(Rect::from_min_max(pos2(s.max.x, s.min.y), pos2(rect.max.x, s.max.y)), 0, dim);
-            }
+            Some(s) => paint_around(&painter, rect, s, dim),
             None => {
                 painter.rect_filled(rect, 0, dim);
             }
@@ -1200,6 +1206,19 @@ impl QueijoApp {
         self.paint_flash(&fg, idx, now);
         self.paint_countdown(&ctx, &fg, idx, rect, now);
         ctx.set_cursor_icon(cursor);
+    }
+
+    /// The captured frame of screen `idx`, with the pointer drawn in when that is wanted.
+    fn frozen_texture(&mut self, ctx: &egui::Context, idx: usize) -> egui::TextureId {
+        let show_pointer = self.pointer && !self.video();
+        let screen = &mut self.screens[idx];
+        let name = format!("screen-{}", screen.monitor.name);
+        match &screen.pointer_image {
+            Some(img) if show_pointer => {
+                screen.pointer_texture.get_or_insert_with(|| load_texture(ctx, &name, img)).id()
+            }
+            _ => screen.texture.get_or_insert_with(|| load_texture(ctx, &name, &screen.image)).id(),
+        }
     }
 
     fn pointer_input(&self, ctx: &egui::Context, idx: usize) -> PointerIn {
@@ -1613,7 +1632,7 @@ impl QueijoApp {
             (Area::Selection, false) => (t("hint.select"), ("Ctrl+A", t("hint.full_screen"))),
             (Area::Screen, false) => (t("hint.screen"), ("Enter", t("hint.this_screen"))),
             (Area::Window, false) if self.picker => (t("hint.picker"), ("Enter", t("hint.active_window"))),
-            (Area::Window, _) if self.visible_window().is_none() && self.window_job.is_none() => {
+            (Area::Window, _) if self.visible_window().is_none() && self.capture_job.is_none() => {
                 (t("hint.window_missing"), ("S", t("hint.selection_key")))
             }
             (Area::Window, false) => (t("hint.window"), ("Enter", t("hint.capture"))),
@@ -2429,7 +2448,8 @@ impl eframe::App for Shared {
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        [0.0, 0.0, 0.0, 1.0]
+        // The windows only dim the live screen; nothing is opaque but our own UI.
+        [0.0, 0.0, 0.0, 0.0]
     }
 }
 
@@ -2442,21 +2462,21 @@ impl QueijoApp {
         while !self.window_taken.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(2));
         }
-        if self.window_job.as_ref().is_some_and(|j| j.is_finished()) {
-            self.window = self
-                .window_job
-                .take()
-                .unwrap()
-                .join()
-                .ok()
-                .flatten()
-                .map(|[x, y, w, h]| Rect::from_min_size(pos2(x as f32, y as f32), vec2(w as f32, h as f32)));
+        if self.capture_job.as_ref().is_some_and(|j| j.is_finished()) {
+            let result = self.capture_job.take().unwrap().join().unwrap_or_else(|_| Err("capture panicked".into()));
+            match result {
+                Ok(captured) => self.set_captured(captured),
+                Err(e) => {
+                    let message = crate::i18n::tf("error.capture", &[("error", &e)]);
+                    eprintln!("queijo: {message}");
+                    output::notify_error("Queijo", &message);
+                    std::process::exit(1);
+                }
+            }
             arrived = true;
-        } else if self.window_job.is_some() {
-            ctx.request_repaint_after(Duration::from_millis(15));
         }
-        // While we show the untouched frozen frame, a capture with the pointer
-        // is pixel-identical to the desktop plus the cursor.
+        // While our windows are still fully transparent, a capture with the
+        // pointer is the desktop plus the cursor.
         if let Some(job) = self.pointer_job.take() {
             let requested = self.pointer_requested.clone();
             self.pointer_thread = Some(std::thread::spawn(move || job(&requested)));
@@ -2490,9 +2510,20 @@ impl QueijoApp {
             let shared = shared.clone();
             ctx.show_viewport_deferred(viewport_id(idx), builder, move |ui, _| lock(&shared).screen_ui(ui, idx));
         }
-        if arrived || self.window_job.is_some() || self.shots_job.is_some() || self.pointer_thread.is_some() {
+        if arrived || self.capture_job.is_some() || self.shots_job.is_some() || self.pointer_thread.is_some() {
             self.wake_others(&ctx, 0);
         }
+    }
+
+    fn set_captured(&mut self, captured: Captured) {
+        for (screen, image) in self.screens.iter_mut().zip(captured.images) {
+            screen.image = image;
+            screen.texture = None;
+        }
+        self.desktop = captured.desktop;
+        self.window =
+            captured.window.map(|[x, y, w, h]| Rect::from_min_size(pos2(x as f32, y as f32), vec2(w as f32, h as f32)));
+        self.pointer_job = captured.pointer_job;
     }
 
     /// Windows don't repaint when state changes in another window; this does it.
@@ -2501,6 +2532,14 @@ impl QueijoApp {
             ctx.request_repaint_of(viewport_id(idx));
         }
     }
+}
+
+/// Fills `rect` around the `hole`.
+fn paint_around(painter: &Painter, rect: Rect, hole: Rect, color: Color32) {
+    painter.rect_filled(Rect::from_min_max(rect.min, pos2(rect.max.x, hole.min.y)), 0, color);
+    painter.rect_filled(Rect::from_min_max(pos2(rect.min.x, hole.max.y), rect.max), 0, color);
+    painter.rect_filled(Rect::from_min_max(pos2(rect.min.x, hole.min.y), pos2(hole.min.x, hole.max.y)), 0, color);
+    painter.rect_filled(Rect::from_min_max(pos2(hole.max.x, hole.min.y), pos2(rect.max.x, hole.max.y)), 0, color);
 }
 
 fn handle_points(r: Rect) -> [Pos2; 8] {

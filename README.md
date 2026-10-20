@@ -4,8 +4,9 @@
 
 Screenshot, screencast and GIF tool for GNOME on Linux.
 
-Press a shortcut and the screen freezes on every monitor. Drag over what you want,
-annotate it, then copy or save it. Switch to video or GIF and record the same
+Press a shortcut and every monitor dims, while you keep seeing the live screen.
+Drag over what you want, annotate it, then copy or save it: you get the screen as
+it was the moment you pressed the shortcut. Switch to video or GIF and record the same
 selection instead.
 
 ## Languages
@@ -22,7 +23,7 @@ More languages are planned; the way to add one is described in
 
 ## Features
 
-- **Freeze and select** on all monitors at once. A selection can span monitors.
+- **Dim and select** on all monitors at once. A selection can span monitors.
 - **Three ways to capture**: any area, a whole screen, or a window. With the GNOME
   Shell extension the window mode lists every window with a live preview.
 - **Annotate**: pen, line, arrow, rectangle, ellipse, marker, text and pixelate,

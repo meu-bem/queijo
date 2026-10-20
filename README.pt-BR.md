@@ -4,8 +4,9 @@
 
 Ferramenta de captura de tela, gravação de vídeo e GIF para o GNOME, no Linux.
 
-Aperte um atalho e a tela congela em todos os monitores. Arraste sobre o que
-quer, faça anotações e copie ou salve. Troque para vídeo ou GIF para gravar a
+Aperte um atalho e todos os monitores escurecem, mas você continua vendo a tela
+ao vivo. Arraste sobre o que quer, faça anotações e copie ou salve: o resultado
+é a tela como estava no instante em que você apertou o atalho. Troque para vídeo ou GIF para gravar a
 mesma seleção.
 
 ## Idiomas
@@ -22,7 +23,7 @@ previstos; o passo a passo para adicionar um está em
 
 ## Recursos
 
-- **Congela e seleciona** em todos os monitores ao mesmo tempo. A seleção pode
+- **Escurece e seleciona** em todos os monitores ao mesmo tempo. A seleção pode
   atravessar monitores.
 - **Três formas de capturar**: uma área qualquer, uma tela inteira ou uma janela.
   Com a extensão do GNOME Shell, o modo janela lista todas as janelas com uma

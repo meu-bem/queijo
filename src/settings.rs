@@ -4,8 +4,8 @@ use std::path::Path;
 use std::thread::JoinHandle;
 
 use eframe::egui::{
-    self, pos2, vec2, Align, Color32, CornerRadius, Event, FontId, Id, Key, Layout, Margin, RichText, Sense, Stroke,
-    StrokeKind, Ui,
+    self, pos2, vec2, Align, Color32, CornerRadius, Event, FontId, Id, Key, Layout, Margin, ResizeDirection, RichText,
+    Sense, Stroke, StrokeKind, Ui, ViewportCommand,
 };
 
 use crate::config::{self, Config, ImageFormat, StartArea, StartKind, Target};
@@ -80,7 +80,10 @@ pub fn run() -> eframe::Result {
             .with_app_id("queijo-settings")
             .with_icon(crate::icon::window_icon())
             .with_inner_size([860.0, 640.0])
-            .with_min_inner_size([680.0, 480.0]),
+            .with_min_inner_size([680.0, 480.0])
+            // GNOME leaves decorations to the app and winit's fallback frame is a bare
+            // grey bar, so we draw our own (see `title_bar`).
+            .with_decorations(false),
         ..Default::default()
     };
     eframe::run_native(
@@ -141,6 +144,16 @@ impl eframe::App for SettingsApp {
         self.capture_keys(&ctx);
         self.finish_browse();
 
+        let window = ui.max_rect();
+        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+        let edge = if maximized { None } else { ctx.input(|i| i.pointer.hover_pos()).and_then(|p| edge_at(window, p)) };
+
+        egui::Panel::top("titlebar")
+            .exact_size(TITLE_H)
+            .resizable(false)
+            .frame(egui::Frame::new().fill(TITLE_BG))
+            .show(ui, |ui| title_bar(ui, maximized, edge.is_some()));
+
         egui::Panel::left("nav")
             .exact_size(200.0)
             .resizable(false)
@@ -175,6 +188,14 @@ impl eframe::App for SettingsApp {
             self.saved = self.cfg.clone();
         }
         self.paint_status(&ctx, now);
+
+        // Undecorated windows get no resize border from the compositor.
+        if let Some(dir) = edge {
+            ctx.set_cursor_icon(resize_cursor(dir));
+            if ctx.input(|i| i.pointer.primary_pressed()) {
+                ctx.send_viewport_cmd(ViewportCommand::BeginResize(dir));
+            }
+        }
     }
 }
 
@@ -617,6 +638,130 @@ impl SettingsApp {
 }
 
 // -------------------------------------------------------------------------
+// Window frame
+
+const TITLE_H: f32 = 40.0;
+const TITLE_BG: Color32 = Color32::from_rgb(16, 16, 19);
+/// How close to the window edge the pointer must be to resize it.
+const EDGE: f32 = 6.0;
+const CORNER: f32 = 14.0;
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum TitleButton {
+    Minimize,
+    Maximize,
+    Close,
+}
+
+/// Drag to move, double-click to maximize, and GNOME-style round buttons on the right.
+fn title_bar(ui: &mut Ui, maximized: bool, on_edge: bool) {
+    let ctx = ui.ctx().clone();
+    let rect = ui.max_rect();
+    let bar = ui.interact(rect, Id::unique("titlebar"), Sense::click_and_drag());
+    if bar.double_clicked() {
+        ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
+    } else if bar.drag_started_by(egui::PointerButton::Primary) && !on_edge {
+        ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+    }
+
+    let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+    let painter = ui.painter();
+    painter.hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, Color32::from_white_alpha(14)));
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        t("settings.window_title"),
+        FontId::proportional(13.5),
+        if focused { TEXT } else { TEXT_DIM },
+    );
+
+    const SIZE: f32 = 24.0;
+    const SPACING: f32 = 12.0;
+    let mut x = rect.right() - 10.0 - SIZE / 2.0;
+    for button in [TitleButton::Close, TitleButton::Maximize, TitleButton::Minimize] {
+        let r = egui::Rect::from_center_size(pos2(x, rect.center().y), vec2(SIZE, SIZE));
+        x -= SIZE + SPACING;
+        let resp = ui.interact(r.expand(SPACING / 2.0), Id::unique(("titlebar-button", button as u8)), Sense::click());
+        let h = ctx.animate_bool_with_time(resp.id, resp.hovered(), 0.1);
+        let fill = if button == TitleButton::Close && h > 0.0 {
+            paint::lerp(Color32::from_white_alpha(20), Color32::from_rgb(255, 69, 58).gamma_multiply(0.8), h)
+        } else {
+            Color32::from_white_alpha((20.0 + 18.0 * h) as u8)
+        };
+        let painter = ui.painter();
+        painter.circle_filled(r.center(), SIZE / 2.0, fill);
+        let ink = Stroke::new(1.4, if focused || h > 0.0 { TEXT } else { TEXT_DIM });
+        let c = r.center();
+        match button {
+            TitleButton::Minimize => {
+                painter.line_segment([c + vec2(-4.0, 3.5), c + vec2(4.0, 3.5)], ink);
+            }
+            TitleButton::Maximize if maximized => {
+                // Restore: two overlapping squares.
+                painter.rect_stroke(
+                    egui::Rect::from_min_size(c + vec2(-4.5, -2.5), vec2(7.0, 7.0)),
+                    1,
+                    ink,
+                    StrokeKind::Middle,
+                );
+                painter.line_segment([c + vec2(-2.0, -4.5), c + vec2(4.5, -4.5)], ink);
+                painter.line_segment([c + vec2(4.5, -4.5), c + vec2(4.5, 2.0)], ink);
+            }
+            TitleButton::Maximize => {
+                painter.rect_stroke(egui::Rect::from_center_size(c, vec2(8.0, 8.0)), 1, ink, StrokeKind::Middle);
+            }
+            TitleButton::Close => {
+                painter.line_segment([c + vec2(-4.0, -4.0), c + vec2(4.0, 4.0)], ink);
+                painter.line_segment([c + vec2(4.0, -4.0), c + vec2(-4.0, 4.0)], ink);
+            }
+        }
+        if resp.clicked() {
+            ctx.send_viewport_cmd(match button {
+                TitleButton::Minimize => ViewportCommand::Minimized(true),
+                TitleButton::Maximize => ViewportCommand::Maximized(!maximized),
+                TitleButton::Close => ViewportCommand::Close,
+            });
+        }
+    }
+}
+
+/// Which way the window resizes when grabbed at `p`, if `p` is on its border.
+fn edge_at(window: egui::Rect, p: egui::Pos2) -> Option<ResizeDirection> {
+    if !window.contains(p) {
+        return None;
+    }
+    let near = |d: f32, reach: f32| d <= reach;
+    let (l, r) = (p.x - window.left(), window.right() - p.x);
+    let (t, b) = (p.y - window.top(), window.bottom() - p.y);
+    let corner = |a: f32, b: f32| near(a, CORNER) && near(b, CORNER) && (near(a, EDGE) || near(b, EDGE));
+    Some(match () {
+        _ if corner(t, l) => ResizeDirection::NorthWest,
+        _ if corner(t, r) => ResizeDirection::NorthEast,
+        _ if corner(b, l) => ResizeDirection::SouthWest,
+        _ if corner(b, r) => ResizeDirection::SouthEast,
+        _ if near(t, EDGE) => ResizeDirection::North,
+        _ if near(b, EDGE) => ResizeDirection::South,
+        _ if near(l, EDGE) => ResizeDirection::West,
+        _ if near(r, EDGE) => ResizeDirection::East,
+        _ => return None,
+    })
+}
+
+fn resize_cursor(dir: ResizeDirection) -> egui::CursorIcon {
+    use egui::CursorIcon as C;
+    match dir {
+        ResizeDirection::North => C::ResizeNorth,
+        ResizeDirection::South => C::ResizeSouth,
+        ResizeDirection::East => C::ResizeEast,
+        ResizeDirection::West => C::ResizeWest,
+        ResizeDirection::NorthEast => C::ResizeNorthEast,
+        ResizeDirection::NorthWest => C::ResizeNorthWest,
+        ResizeDirection::SouthEast => C::ResizeSouthEast,
+        ResizeDirection::SouthWest => C::ResizeSouthWest,
+    }
+}
+
+// -------------------------------------------------------------------------
 // Widgets
 
 fn card(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
@@ -813,5 +958,17 @@ mod tests {
         }
         let titles: std::collections::HashSet<_> = Section::ALL.iter().map(|s| s.title()).collect();
         assert_eq!(titles.len(), Section::ALL.len());
+    }
+
+    #[test]
+    fn the_window_border_resizes_the_right_way() {
+        let w = egui::Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
+        assert_eq!(edge_at(w, pos2(2.0, 2.0)), Some(ResizeDirection::NorthWest));
+        assert_eq!(edge_at(w, pos2(798.0, 10.0)), Some(ResizeDirection::NorthEast), "corners reach along the edge");
+        assert_eq!(edge_at(w, pos2(400.0, 598.0)), Some(ResizeDirection::South));
+        assert_eq!(edge_at(w, pos2(1.0, 300.0)), Some(ResizeDirection::West));
+        assert_eq!(edge_at(w, pos2(10.0, 10.0)), None, "inside the corner zone but off both edges");
+        assert_eq!(edge_at(w, pos2(400.0, 300.0)), None);
+        assert_eq!(edge_at(w, pos2(-5.0, 300.0)), None);
     }
 }
