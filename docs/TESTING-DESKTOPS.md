@@ -93,6 +93,9 @@ from the screen's picture. Other window managers (and their `_NET_FRAME_EXTENTS`
 example with client-side decorations) have not been tried. A window that another covers
 shows what is on screen there, because X11 has no way to ask for its hidden pixels.
 
+GNOME 43 and 44: the older extension now says it works with them (the code does not use
+anything that changed before GNOME 45), but only GNOME 42 has run it.
+
 GNOME 45 and later: the extension for them (`gnome-extension/esm/`) has only been run
 against stand-ins for GNOME's modules (`tests/extension/`), which checks its logic and the
 shape of its D-Bus interface but not that the real Shell accepts what it calls. Source checks

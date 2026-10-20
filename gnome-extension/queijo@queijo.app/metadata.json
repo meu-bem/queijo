@@ -2,6 +2,6 @@
   "uuid": "queijo@queijo.app",
   "name": "Queijo helper",
   "description": "Lets the Queijo screenshot tool list and capture windows, and shows a recording indicator in the top bar.",
-  "shell-version": ["42"],
+  "shell-version": ["42", "43", "44"],
   "version": 1
 }
