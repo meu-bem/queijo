@@ -332,13 +332,10 @@ fn report(env: &Env) -> String {
     line("Everything else:".into());
     let picker = match env.session {
         Session::Headless => "no display".to_string(),
-        _ => {
-            let conn = zbus::blocking::Connection::session().ok();
-            match conn.and_then(|c| crate::shell_ext::list_windows(&c)) {
-                Some(_) => "the GNOME Shell extension answers".to_string(),
-                None => "no window list (the GNOME Shell extension is not running)".to_string(),
-            }
-        }
+        _ => match crate::windows::find(env) {
+            Some((source, list)) => format!("{} lists {} windows", source.name(), list.len()),
+            None => "no window list (only the focused window can be picked)".to_string(),
+        },
     };
     line(format!("  Window picker:    {picker}"));
     line("  Shortcuts:        GNOME keyboard settings (gsettings)".into());

@@ -18,6 +18,7 @@ mod shell_ext;
 mod shortcut;
 #[cfg(test)]
 mod testutil;
+mod windows;
 mod x11;
 
 use std::io::Write;
@@ -120,12 +121,10 @@ fn main() {
         return;
     }
 
-    // With the Queijo Shell extension we can offer every window; otherwise only
-    // the focused one, found by matching its picture on the screen.
-    let extension = zbus::blocking::Connection::session()
-        .ok()
-        .and_then(|conn| shell_ext::list_windows(&conn).map(|list| (conn, list)));
-    let shots_job = extension.map(|(conn, list)| std::thread::spawn(move || shell_ext::capture_all(&conn, list)));
+    // If the desktop can list its windows we offer every one; otherwise only the
+    // focused one, found by matching its picture on the screen.
+    let shots_job =
+        windows::find(desktop::Env::current()).map(|(source, list)| std::thread::spawn(move || source.shots(list)));
     let window_taken = Arc::new(AtomicBool::new(shots_job.is_some()));
 
     // The screen is captured while our windows start up. They stay fully

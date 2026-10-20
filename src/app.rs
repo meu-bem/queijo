@@ -15,7 +15,7 @@ use crate::monitors::Monitor;
 use crate::output;
 use crate::paint::{self, Annotation, Icon, Tool, ACCENT, PALETTE, TEXT, TEXT_DIM};
 use crate::record;
-use crate::shell_ext::WindowShot;
+use crate::windows::{self, WindowShot};
 
 const BTN: f32 = 36.0;
 const PAD: f32 = 5.0;
@@ -2513,6 +2513,7 @@ impl QueijoApp {
         }
         if self.shots_job.as_ref().is_some_and(|j| j.is_finished()) {
             self.shots = self.shots_job.take().unwrap().join().unwrap_or_default();
+            self.fill_thumbs();
             arrived = true;
         } else if self.shots_job.is_some() {
             ctx.request_repaint_after(Duration::from_millis(30));
@@ -2530,12 +2531,26 @@ impl QueijoApp {
         }
     }
 
+    /// A window the desktop gave no picture of gets its preview cut from the screen's picture.
+    /// Whichever of the two arrives second does it.
+    fn fill_thumbs(&mut self) {
+        if self.desktop.width() == 0 {
+            return;
+        }
+        let (origin, width) =
+            ((self.desktop_rect.min.x as i32, self.desktop_rect.min.y as i32), self.desktop_rect.width());
+        for shot in self.shots.iter_mut().filter(|s| s.thumb.is_none() && s.image.is_none()) {
+            shot.thumb = windows::thumb_from_desktop(&self.desktop, origin, width, shot.frame);
+        }
+    }
+
     fn set_captured(&mut self, captured: Captured) {
         for (screen, image) in self.screens.iter_mut().zip(captured.images) {
             screen.image = image;
             screen.texture = None;
         }
         self.desktop = captured.desktop;
+        self.fill_thumbs();
         self.window =
             captured.window.map(|[x, y, w, h]| Rect::from_min_size(pos2(x as f32, y as f32), vec2(w as f32, h as f32)));
         self.pointer_job = captured.pointer_job;
