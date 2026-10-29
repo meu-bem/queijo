@@ -386,6 +386,7 @@ pub enum Icon {
     Redo,
     Save,
     Copy,
+    Ocr,
     Close,
     Selection,
     Screen,
@@ -463,6 +464,20 @@ pub fn icon(painter: &Painter, icon: Icon, c: Pos2, color: Color32) {
         Icon::Copy => {
             painter.rect_stroke(Rect::from_min_size(p(-3.5, -3.5), vec2(10.0, 10.5)), 2, s, StrokeKind::Middle);
             painter.add(Shape::line(vec![p(-6.5, 3.5), p(-6.5, -7.0), p(3.5, -7.0)], s));
+        }
+        Icon::Ocr => {
+            // Corner brackets around lines of text.
+            for (corner, dx, dy) in [
+                (p(-7.5, -7.5), 1.0, 1.0),
+                (p(7.5, -7.5), -1.0, 1.0),
+                (p(-7.5, 7.5), 1.0, -1.0),
+                (p(7.5, 7.5), -1.0, -1.0),
+            ] {
+                painter.add(Shape::line(vec![corner + vec2(0.0, 3.5 * dy), corner, corner + vec2(3.5 * dx, 0.0)], s));
+            }
+            painter.line_segment([p(-4.0, -2.5), p(4.0, -2.5)], s);
+            painter.line_segment([p(-4.0, 1.0), p(4.0, 1.0)], s);
+            painter.line_segment([p(-4.0, 4.5), p(1.0, 4.5)], s);
         }
         Icon::Close => {
             painter.line_segment([p(-5.5, -5.5), p(5.5, 5.5)], s);
@@ -822,6 +837,7 @@ mod tests {
                 Icon::Redo,
                 Icon::Save,
                 Icon::Copy,
+                Icon::Ocr,
                 Icon::Close,
                 Icon::Selection,
                 Icon::Screen,

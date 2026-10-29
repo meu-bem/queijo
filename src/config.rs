@@ -61,6 +61,10 @@ pub struct Config {
     pub start_area: StartArea,
     pub start_kind: StartKind,
     pub show_pointer: bool,
+    /// Show a still picture of the screen under the dim instead of the live screen.
+    pub freeze_screen: bool,
+    /// Languages tesseract reads in, as it names them (`por+eng`); empty follows the system.
+    pub ocr_languages: String,
     pub notifications: bool,
     /// Ctrl+C also writes a file.
     pub copy_also_saves: bool,
@@ -96,6 +100,8 @@ impl Default for Config {
             start_area: StartArea::Selection,
             start_kind: StartKind::Screenshot,
             show_pointer: false,
+            freeze_screen: false,
+            ocr_languages: String::new(),
             notifications: true,
             copy_also_saves: false,
             save_also_copies: false,

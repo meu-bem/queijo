@@ -164,6 +164,13 @@ const TOOLS: &[Tool] = &[
         packages: ["gifsicle"; 5],
     },
     Tool {
+        program: "tesseract",
+        purpose: "reads the text in a selection (needs the language data you read too)",
+        when: When::Always,
+        required: false,
+        packages: ["tesseract-ocr", "tesseract", "tesseract-ocr", "tesseract", "tesseract-ocr"],
+    },
+    Tool {
         program: "notify-send",
         purpose: "notifications, if D-Bus has none",
         when: When::Always,

@@ -45,6 +45,16 @@ pub fn copy_data(mime: &str, data: &[u8]) -> Result<(), String> {
     }
 }
 
+/// Puts plain text on the clipboard.
+pub fn copy_text(text: &str) -> Result<(), String> {
+    let x: [&str; 3] = ["-selection", "clipboard", "-i"];
+    if crate::monitors::is_wayland() {
+        copy_with(&[("wl-copy", &[]), ("xclip", &x)], "wl-clipboard", text.as_bytes())
+    } else {
+        copy_with(&[("xclip", &x), ("wl-copy", &[])], "xclip", text.as_bytes())
+    }
+}
+
 /// Tries each tool in turn. If none is installed, the error says which package
 /// (`package`) to get; if one is but fails, it says why.
 fn copy_with(attempts: &[(&str, &[&str])], package: &str, data: &[u8]) -> Result<(), String> {

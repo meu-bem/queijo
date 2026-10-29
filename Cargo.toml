@@ -51,7 +51,7 @@ later); enable the right one with `queijo --enable-extension`."""
 depends = """$auto, libc6 (>= 2.28), ffmpeg, libglib2.0-bin, wl-clipboard | xclip, \
 libwayland-client0, libxkbcommon0, libxkbcommon-x11-0, libegl1, libgl1, libx11-6, libxcb1, \
 libxcursor1, libxi6, libxrandr2"""
-recommends = "gifsicle, zenity, libnotify-bin, gstreamer1.0-tools, gstreamer1.0-pipewire, gstreamer1.0-plugins-good, gstreamer1.0-libav"
+recommends = "gifsicle, tesseract-ocr, zenity, libnotify-bin, gstreamer1.0-tools, gstreamer1.0-pipewire, gstreamer1.0-plugins-good, gstreamer1.0-libav"
 suggests = "wf-recorder, grim, kde-spectacle, gnome-screenshot"
 assets = [
     ["target/release/queijo", "usr/bin/", "755"],
@@ -118,6 +118,7 @@ assets = [
 "(wl-clipboard or xclip)" = ""
 "(glib2 or glib2-tools)" = ""
 gifsicle = ""
+tesseract = ""
 zenity = ""
 "(libnotify or libnotify-tools)" = ""
 "(gstreamer1 or gstreamer-utils)" = ""

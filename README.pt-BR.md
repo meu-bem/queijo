@@ -31,6 +31,13 @@ previstos; o passo a passo para adicionar um está em
 - **Anotações**: caneta, linha, seta, retângulo, elipse, marca-texto, texto e
   pixelar, com desfazer/refazer, cores e tamanhos. `Shift` mantém ângulos e
   formas retos.
+- **Copiar texto da imagem**: o botão de texto (ou a tecla `O`) lê a seleção com o
+  `tesseract`; arraste sobre as palavras que quer, ou aperte `Ctrl+C` para copiar todas.
+  Precisa do `tesseract` e dos dados do idioma que você lê (`tesseract-ocr-por` para
+  português); ele lê o idioma da sua sessão mais o inglês, ou o que estiver em
+  `ocr_languages` (`por+eng`) em `~/.config/queijo/config.toml`.
+- **Congelar a tela** (Configurações → Geral): o escurecimento fica sobre uma imagem parada
+  da tela, e o que se mexe ao fundo para. Desligado por padrão.
 - **Gravação de vídeo** em WebM e **GIF animado**, com contagem regressiva,
   ponteiro do mouse opcional e um indicador de gravação na barra superior. Os
   GIFs são gravados sem perdas e depois otimizados (uma paleta por clipe,

@@ -275,6 +275,10 @@ impl SettingsApp {
             row(ui, t("settings.pointer"), t("settings.pointer_desc"), |ui| {
                 toggle(ui, &mut self.cfg.show_pointer);
             });
+            sep(ui);
+            row(ui, t("settings.freeze"), t("settings.freeze_desc"), |ui| {
+                toggle(ui, &mut self.cfg.freeze_screen);
+            });
         });
         card(ui, |ui| {
             row(ui, t("settings.copy_saves"), t("settings.copy_saves_desc"), |ui| {

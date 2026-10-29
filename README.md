@@ -28,6 +28,13 @@ More languages are planned; the way to add one is described in
   Shell extension the window mode lists every window with a live preview.
 - **Annotate**: pen, line, arrow, rectangle, ellipse, marker, text and pixelate,
   with undo/redo, colours and sizes. `Shift` keeps angles and shapes straight.
+- **Copy text from the picture**: the text button (or `O`) reads the selection with
+  `tesseract`; drag over the words you want, or press `Ctrl+C` for all of them. It needs
+  `tesseract` and the language data you read (`tesseract-ocr-por` for Portuguese); it reads
+  the language of your session plus English, or the `ocr_languages` setting (`por+eng`) in
+  `~/.config/queijo/config.toml`.
+- **Freeze the screen** (Settings → General): the dim sits on a still picture of the screen, so
+  what moves behind it stops. Off by default.
 - **Screencast** to WebM and **animated GIF**, with a countdown, an optional mouse
   pointer and a recording indicator in the top bar. GIFs are recorded losslessly
   and then optimized (one palette per clip, light dithering, only the changed part

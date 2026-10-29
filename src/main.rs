@@ -9,6 +9,7 @@ mod i18n;
 mod icon;
 mod kwin;
 mod monitors;
+mod ocr;
 mod output;
 mod paint;
 mod portal;
@@ -167,7 +168,10 @@ fn main() {
 
     // Without a compositor our windows can't be see-through, so they show a
     // still picture of the screen instead, and it must be taken before they exist.
-    let frozen = !desktop::Env::current().compositing;
+    // The setting asks for a still picture on purpose: the screen stops moving behind the dim.
+    // The windows stay see-through when they can, and the picture fades in over the live screen.
+    let opaque = !desktop::Env::current().compositing;
+    let frozen = cfg.freeze_screen || opaque;
     let (capture_job, desktop_rect) = if monitors.is_empty() {
         // Nothing to size the windows by but the picture itself.
         let job = start_capture(Vec::new());
@@ -200,7 +204,7 @@ fn main() {
     let wayland = monitors::is_wayland();
     let screens: Vec<app::Screen> = monitors
         .into_iter()
-        .map(|monitor| app::Screen::new(viewport(&monitor, wayland, !frozen), monitor, image::RgbaImage::new(0, 0)))
+        .map(|monitor| app::Screen::new(viewport(&monitor, wayland, !opaque), monitor, image::RgbaImage::new(0, 0)))
         .collect();
 
     let options = eframe::NativeOptions { viewport: screens[0].viewport.clone(), ..Default::default() };
@@ -216,6 +220,7 @@ fn main() {
                 window_taken,
                 shots_job,
                 frozen,
+                opaque,
             ))))
         }),
     );

@@ -32,6 +32,7 @@ Opened when the editor starts, so no package manager finds them as dependencies;
 | `xclip` | copies to the clipboard on X11 | X11 | yes | `xclip` | `xclip` | `xclip` | `xclip` | `xclip` |
 | `gsettings` | keyboard shortcuts on GNOME, Cinnamon and MATE, and `queijo --enable-extension` | always | no | `libglib2.0-bin` | `glib2` | `glib2-tools` | `glib2` | `glib` |
 | `gifsicle` | makes GIFs a little smaller | always | no | `gifsicle` | `gifsicle` | `gifsicle` | `gifsicle` | `gifsicle` |
+| `tesseract` | reads the text in a selection (needs the language data you read too) | always | no | `tesseract-ocr` | `tesseract` | `tesseract-ocr` | `tesseract` | `tesseract-ocr` |
 | `notify-send` | notifications, if D-Bus has none | always | no | `libnotify-bin` | `libnotify` | `libnotify-tools` | `libnotify` | `libnotify` |
 | `zenity` | folder picker, if the portal has none | always | no | `zenity` | `zenity` | `zenity` | `zenity` | `zenity` |
 | `gnome-screenshot` | screenshot fallback | always | no | `gnome-screenshot` | `gnome-screenshot` | `gnome-screenshot` | `gnome-screenshot` | `gnome-screenshot` |

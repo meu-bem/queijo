@@ -12,6 +12,7 @@ use image::RgbaImage;
 use crate::config::{self, Config};
 use crate::i18n::t;
 use crate::monitors::Monitor;
+use crate::ocr;
 use crate::output;
 use crate::paint::{self, Annotation, Icon, Tool, ACCENT, PALETTE, TEXT, TEXT_DIM};
 use crate::record;
@@ -128,6 +129,7 @@ enum Item {
     Copy,
     Close,
     Record,
+    Ocr,
     Mode(Area),
     Kind(Kind),
     Pointer,
@@ -155,6 +157,7 @@ impl Item {
             Item::Copy => (t("tip.copy").into(), "Ctrl+C"),
             Item::Close => (t("tip.close").into(), "Esc"),
             Item::Record => (t("tip.record").into(), "Enter"),
+            Item::Ocr => (t("tip.ocr").into(), "O"),
             Item::Mode(Area::Selection) => (t("tip.select_area").into(), "S"),
             Item::Mode(Area::Screen) => (t("tip.capture_screen").into(), "C"),
             Item::Mode(Area::Window) => (t("tip.capture_window").into(), "W"),
@@ -197,7 +200,7 @@ const VBAR: [Item; 13] = [
     Item::Undo,
     Item::Redo,
 ];
-const HBAR: [Item; 4] = [Item::Save, Item::Copy, Item::Sep, Item::Close];
+const HBAR: [Item; 6] = [Item::Ocr, Item::Sep, Item::Save, Item::Copy, Item::Sep, Item::Close];
 const HBAR_VIDEO: [Item; 3] = [Item::Record, Item::Sep, Item::Close];
 const MODEBAR: [Item; 11] = [
     Item::Mode(Area::Selection),
@@ -251,6 +254,10 @@ enum Drag {
         start: Rect,
     },
     Drawing,
+    /// Selecting words of the recognized text; `origin` is where the button went down.
+    Reading {
+        origin: Pos2,
+    },
     /// The press landed on UI chrome (or closed a popover); ignore it until release.
     Swallow,
 }
@@ -267,6 +274,23 @@ struct Export {
     involved: Vec<usize>,
     frames: Vec<Arc<Mutex<Option<Arc<egui::ColorImage>>>>>,
     requested: Vec<bool>,
+    started: f64,
+}
+
+/// Text recognition on the selection: running, then the words to pick from.
+struct Ocr {
+    job: Option<JoinHandle<Result<Vec<ocr::Word>, String>>>,
+    /// Where each word sits, in desktop coordinates.
+    rects: Vec<Rect>,
+    words: Vec<ocr::Word>,
+    /// The first and last picked word, in reading order.
+    picked: Option<(usize, usize)>,
+    /// The word the current drag started on.
+    anchor: Option<usize>,
+    /// Why nothing could be read, shown over the selection.
+    error: Option<String>,
+    /// Where the selection was when it was read; the words are only valid there.
+    area: Rect,
     started: f64,
 }
 
@@ -424,6 +448,8 @@ pub struct QueijoApp {
     /// Without a compositor: the windows are opaque and show the captured
     /// frame, dimmed, instead of the live screen.
     frozen: bool,
+    /// The windows cannot be see-through (no compositor): they are black behind the picture.
+    opaque: bool,
     desktop_rect: Rect,
     /// The part of the desktop our windows cover.
     bounds: Rect,
@@ -479,6 +505,7 @@ pub struct QueijoApp {
     stop_key: Arc<Mutex<Option<String>>>,
     countdown: Option<Countdown>,
 
+    ocr: Option<Ocr>,
     export: Option<Export>,
     closing: Option<Closing>,
     /// Encoding/copying runs on a worker so the windows can go away at once.
@@ -506,6 +533,7 @@ impl QueijoApp {
         window_taken: Arc<AtomicBool>,
         shots_job: Option<JoinHandle<Vec<WindowShot>>>,
         frozen: bool,
+        opaque: bool,
     ) -> Self {
         let bounds = screens.iter().map(Screen::global).reduce(|a, b| a.union(b)).unwrap_or(desktop_rect);
         let stop_key = Arc::new(Mutex::new(None));
@@ -516,6 +544,7 @@ impl QueijoApp {
             desktop: Arc::new(RgbaImage::new(0, 0)),
             capture_job: Some(capture_job),
             frozen,
+            opaque,
             desktop_rect,
             bounds,
             selection: None,
@@ -564,6 +593,7 @@ impl QueijoApp {
             hold_until: None,
             stop_key,
             countdown: None,
+            ocr: None,
             export: None,
             closing: None,
             worker_done: Arc::new(AtomicBool::new(true)),
@@ -842,6 +872,7 @@ impl QueijoApp {
 
     fn toggle_tool(&mut self, tool: Tool) {
         self.commit_text();
+        self.ocr = None;
         self.tool = if self.tool == Some(tool) { None } else { Some(tool) };
     }
 
@@ -912,6 +943,8 @@ impl QueijoApp {
         }
         self.commit_text();
         self.current = None;
+        // The picture is the screen and the drawings; the highlighted words are only for picking.
+        self.ocr = None;
         self.drag = Drag::None;
         self.palette_open = false;
         if self.selection.is_none() && self.area == Area::Window {
@@ -926,17 +959,7 @@ impl QueijoApp {
 
         if self.annotations.is_empty() {
             // Nothing drawn: the frozen capture already is the result, no need to render.
-            let image = self.stitch(sel, |screen, inter| {
-                let img = match &screen.pointer_image {
-                    Some(img) if self.pointer => img,
-                    _ => &screen.image,
-                };
-                let s = screen.px_scale();
-                let r = inter.translate(-screen.global().min.to_vec2());
-                let (x, y) = ((r.min.x * s).round() as u32, (r.min.y * s).round() as u32);
-                let (w, h) = ((r.width() * s).round() as u32, (r.height() * s).round() as u32);
-                Some(image::imageops::crop_imm(img, x, y, w.max(1), h.max(1)).to_image())
-            });
+            let image = self.raw_capture(sel, self.pointer);
             self.finish_export(action, image, now);
             return;
         }
@@ -950,6 +973,178 @@ impl QueijoApp {
             requested: vec![false; n],
             started: now,
         });
+    }
+
+    /// `sel` cut out of the captured frames, with nothing drawn on it.
+    fn raw_capture(&self, sel: Rect, with_pointer: bool) -> RgbaImage {
+        self.stitch(sel, |screen, inter| {
+            let img = match &screen.pointer_image {
+                Some(img) if with_pointer => img,
+                _ => &screen.image,
+            };
+            let s = screen.px_scale();
+            let r = inter.translate(-screen.global().min.to_vec2());
+            let (x, y) = ((r.min.x * s).round() as u32, (r.min.y * s).round() as u32);
+            let (w, h) = ((r.width() * s).round() as u32, (r.height() * s).round() as u32);
+            Some(image::imageops::crop_imm(img, x, y, w.max(1), h.max(1)).to_image())
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Text in the picture
+
+    fn ocr_ready(&self) -> bool {
+        self.ocr.as_ref().is_some_and(|o| o.job.is_none() && !o.words.is_empty())
+    }
+
+    /// Reads the text in the selection (the pointer is left out: it only gets in the way).
+    fn start_ocr(&mut self, now: f64) {
+        let Some(sel) = self.selection.filter(|_| !self.video()) else { return };
+        if self.export.is_some() || self.closing.is_some() {
+            return;
+        }
+        self.commit_text();
+        self.current = None;
+        self.tool = None;
+        self.palette_open = false;
+        let image = self.raw_capture(sel, false);
+        let languages = self.cfg.ocr_languages.clone();
+        // The words come back in picture pixels; the selection is in logical ones.
+        let k = image.width() as f32 / sel.width().max(1.0);
+        self.ocr = Some(Ocr {
+            job: Some(std::thread::spawn(move || {
+                let words = ocr::recognize(&image, &languages)?;
+                Ok(words
+                    .into_iter()
+                    .map(|w| ocr::Word { x: w.x / k, y: w.y / k, w: w.w / k, h: w.h / k, ..w })
+                    .collect())
+            })),
+            rects: Vec::new(),
+            words: Vec::new(),
+            picked: None,
+            anchor: None,
+            error: None,
+            area: sel,
+            started: now,
+        });
+    }
+
+    fn poll_ocr(&mut self, ctx: &egui::Context) {
+        let Some(o) = &mut self.ocr else { return };
+        if o.job.as_ref().is_some_and(|j| !j.is_finished()) {
+            ctx.request_repaint_after(Duration::from_millis(30));
+            return;
+        }
+        let Some(job) = o.job.take() else { return };
+        match job.join().unwrap_or_else(|_| Err("text recognition panicked".into())) {
+            Ok(words) => {
+                o.rects =
+                    words.iter().map(|w| Rect::from_min_size(o.area.min + vec2(w.x, w.y), vec2(w.w, w.h))).collect();
+                o.words = words;
+            }
+            Err(e) => {
+                let (shown, message) = if e == "missing" {
+                    (t("ocr.install").to_string(), t("ocr.missing").to_string())
+                } else {
+                    (e.clone(), e)
+                };
+                o.error = Some(shown);
+                output::notify_error(t("ocr.failed"), &message);
+            }
+        }
+        ctx.request_repaint();
+    }
+
+    /// The word nearest to `p`, with how far away it is.
+    fn nearest_word(&self, p: Pos2) -> Option<(usize, f32)> {
+        let o = self.ocr.as_ref()?;
+        o.rects.iter().enumerate().map(|(i, r)| (i, (r.distance_to_pos(p)))).min_by(|a, b| a.1.total_cmp(&b.1))
+    }
+
+    fn select_all_words(&mut self) {
+        if let Some(o) = &mut self.ocr {
+            o.picked = (!o.words.is_empty()).then_some((0, o.words.len() - 1));
+        }
+    }
+
+    /// Copies the picked words, or all of them when none are picked, and closes.
+    fn copy_ocr_text(&mut self, now: f64) {
+        let Some(o) = self.ocr.as_ref().filter(|_| self.ocr_ready() && self.closing.is_none()) else { return };
+        let words = match o.picked {
+            Some((a, b)) => &o.words[a..=b],
+            None => &o.words[..],
+        };
+        let text = ocr::join(words);
+        self.remember_tools();
+        let (done, faded) = (self.worker_done.clone(), self.faded.clone());
+        done.store(false, Ordering::SeqCst);
+        std::thread::spawn(move || {
+            match output::copy_text(&text) {
+                Ok(()) => {
+                    let preview: String =
+                        text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(80).collect();
+                    output::notify(t("ocr.copied"), &preview, None);
+                }
+                Err(e) => output::notify_error(t("notify.copy_failed"), &e),
+            }
+            done.store(true, Ordering::SeqCst);
+            if faded.load(Ordering::SeqCst) {
+                std::process::exit(0);
+            }
+        });
+        self.closing = Some(Closing { started: now, export: true });
+    }
+
+    fn paint_ocr(&self, painter: &Painter, offset: egui::Vec2, rect: Rect, now: f64, alpha: f32) {
+        let (Some(o), Some(sel)) = (&self.ocr, self.selection) else { return };
+        let clip = painter.with_clip_rect(sel.translate(offset).intersect(rect));
+        let area = sel.translate(offset);
+        let label = |text: &str| {
+            let galley =
+                painter.layout_no_wrap(text.into(), FontId::proportional(14.0), Color32::WHITE.gamma_multiply(alpha));
+            let r = Rect::from_center_size(area.center(), galley.size() + vec2(28.0, 16.0));
+            if rect.intersects(r) {
+                paint::panel(painter, r, 10, alpha);
+                painter.galley(r.center() - galley.size() / 2.0, galley, Color32::WHITE);
+            }
+        };
+        if o.job.is_some() {
+            // A band sweeps over the selection while it is being read.
+            let sweep = (((now - o.started) * 1.2) % 1.0) as f32;
+            let y = area.top() + area.height() * sweep;
+            clip.rect_filled(area, 0, Color32::from_black_alpha((70.0 * alpha) as u8));
+            clip.rect_filled(
+                Rect::from_min_max(pos2(area.left(), y - 14.0), pos2(area.right(), y + 14.0)),
+                0,
+                ACCENT.gamma_multiply(0.25 * alpha),
+            );
+            label(t("ocr.reading"));
+            return;
+        }
+        if let Some(e) = &o.error {
+            label(e);
+            return;
+        }
+        if o.words.is_empty() {
+            label(t("ocr.none"));
+            return;
+        }
+        let picked = o.picked.unwrap_or((1, 0));
+        for (i, r) in o.rects.iter().enumerate() {
+            let r = r.translate(offset).expand2(vec2(2.0, 1.0));
+            let on = (picked.0..=picked.1).contains(&i);
+            let fill =
+                if on { ACCENT.gamma_multiply(0.45 * alpha) } else { Color32::from_white_alpha((36.0 * alpha) as u8) };
+            clip.rect_filled(r, 3, fill);
+            if !on {
+                clip.rect_stroke(
+                    r,
+                    3,
+                    Stroke::new(1.0, Color32::from_white_alpha((70.0 * alpha) as u8)),
+                    StrokeKind::Inside,
+                );
+            }
+        }
     }
 
     fn request_capture(&mut self, ctx: &egui::Context, idx: usize) {
@@ -1106,6 +1301,7 @@ impl QueijoApp {
         let offset = screen.offset();
 
         self.poll_export(now);
+        self.poll_ocr(&ctx);
         let alpha = self.closing_alpha(&ctx, now);
         let exporting_close = self.closing.as_ref().is_some_and(|c| c.export);
 
@@ -1142,8 +1338,11 @@ impl QueijoApp {
         if !frozen.is_empty() {
             let texture = self.frozen_texture(&ctx, idx);
             let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
+            // Over the live screen the picture fades in (and out), so the switch goes unnoticed.
+            let tint =
+                if self.opaque || exporting { Color32::WHITE } else { Color32::WHITE.gamma_multiply(intro * alpha) };
             for r in frozen {
-                painter.with_clip_rect(r).image(texture, rect, uv, Color32::WHITE);
+                painter.with_clip_rect(r).image(texture, rect, uv, tint);
             }
         }
         if !self.video() {
@@ -1152,6 +1351,9 @@ impl QueijoApp {
                 a.translated(offset).paint(&clip);
             }
             self.paint_text_draft(&ctx, &painter, offset, now);
+        }
+        if !exporting && !exporting_close {
+            self.paint_ocr(&painter, offset, rect, now, alpha);
         }
 
         if exporting {
@@ -1256,6 +1458,7 @@ impl QueijoApp {
         let events = ctx.input(|i| i.events.clone());
         for event in events {
             match event {
+                Event::Copy | Event::Cut if self.ocr_ready() => self.copy_ocr_text(now),
                 Event::Copy | Event::Cut if !self.video() => self.start_export(Action::Copy, idx, now),
                 Event::Text(t) | Event::Paste(t) => {
                     if let Some(d) = &mut self.text {
@@ -1293,6 +1496,16 @@ impl QueijoApp {
         let no_selection = self.selection.is_none();
         match key {
             Key::Escape if self.palette_open => self.palette_open = false,
+            Key::Escape if self.ocr.is_some() => self.ocr = None,
+            Key::Enter | Key::C if self.ocr_ready() && (key == Key::Enter || cmd) => self.copy_ocr_text(now),
+            Key::A if cmd && self.ocr_ready() => self.select_all_words(),
+            Key::O if !cmd && self.selection.is_some() && !self.video() => {
+                if self.ocr.is_some() {
+                    self.ocr = None;
+                } else {
+                    self.start_ocr(now);
+                }
+            }
             Key::Escape => self.close(now),
             Key::Enter => self.confirm(idx, now),
             // GNOME screenshot UI keys, while nothing is selected yet.
@@ -1321,6 +1534,7 @@ impl QueijoApp {
                 };
                 if let Some(sel) = self.selection {
                     self.selection = Some(clamp_into(sel.translate(d), self.bounds));
+                    self.ocr = None;
                 }
             }
             k if !cmd && !m.alt => {
@@ -1405,6 +1619,7 @@ impl QueijoApp {
             Drag::Moving { .. } => return CursorIcon::Grabbing,
             Drag::Resizing { handle, .. } => return handle.cursor(),
             Drag::Selecting { .. } | Drag::Drawing => return CursorIcon::Crosshair,
+            Drag::Reading { .. } => return CursorIcon::Text,
             Drag::Swallow | Drag::None => {}
         }
         let Some(p) = input.pos.map(desktop) else { return CursorIcon::Crosshair };
@@ -1425,6 +1640,7 @@ impl QueijoApp {
         }
         if sel.contains(p) {
             return match self.tool {
+                _ if self.ocr.is_some() => CursorIcon::Text,
                 None => CursorIcon::Move,
                 Some(Tool::Text) => CursorIcon::Text,
                 Some(_) => CursorIcon::Crosshair,
@@ -1443,7 +1659,18 @@ impl QueijoApp {
         }
         if let Some(sel) = self.selection {
             if let Some(handle) = hit_handle(sel, p) {
+                self.ocr = None;
                 self.drag = Drag::Resizing { handle, start: sel };
+                return;
+            }
+            if sel.contains(p) && self.ocr.is_some() {
+                // Words are picked by dragging over them; a press away from every word picks none.
+                let on_word = self.nearest_word(p).filter(|&(_, d)| d <= 10.0).map(|(i, _)| i);
+                if let Some(o) = &mut self.ocr {
+                    o.anchor = on_word;
+                    o.picked = on_word.map(|i| (i, i));
+                }
+                self.drag = Drag::Reading { origin: p };
                 return;
             }
             if sel.contains(p) {
@@ -1481,6 +1708,7 @@ impl QueijoApp {
             return;
         }
         let previous = self.selection.take();
+        self.ocr = None;
         self.drag = Drag::Selecting { origin: p, previous };
     }
 
@@ -1532,6 +1760,15 @@ impl QueijoApp {
                     a.update(p, shift);
                 }
             }
+            Drag::Reading { origin } => {
+                let (origin, here) = (*origin, self.nearest_word(p).map(|(i, _)| i));
+                let start =
+                    self.ocr.as_ref().and_then(|o| o.anchor).or_else(|| self.nearest_word(origin).map(|(i, _)| i));
+                if let (Some(a), Some(b), Some(o)) = (start, here, &mut self.ocr) {
+                    o.anchor = Some(a);
+                    o.picked = Some((a.min(b), a.max(b)));
+                }
+            }
             Drag::None | Drag::Swallow => {}
         }
     }
@@ -1560,7 +1797,7 @@ impl QueijoApp {
                     }
                 }
             }
-            Drag::Moving { .. } | Drag::None | Drag::Swallow => {}
+            Drag::Moving { .. } | Drag::Reading { .. } | Drag::None | Drag::Swallow => {}
         }
         self.press_origin = None;
     }
@@ -1923,7 +2160,10 @@ impl QueijoApp {
                 Item::Undo => self.undo(),
                 Item::Redo => self.redo(),
                 Item::Save => self.start_export(Action::Save, idx, now),
+                Item::Copy if self.ocr_ready() => self.copy_ocr_text(now),
                 Item::Copy => self.start_export(Action::Copy, idx, now),
+                Item::Ocr if self.ocr.is_some() => self.ocr = None,
+                Item::Ocr => self.start_ocr(now),
                 Item::Close => self.close(now),
                 Item::Record => self.start_record(now),
                 Item::Mode(_) | Item::Kind(_) | Item::Pointer | Item::Settings | Item::Sep => {}
@@ -2076,6 +2316,7 @@ impl QueijoApp {
         let active = matches!(item, Item::Tool(t) if self.tool == Some(t))
             || (item == Item::Color && self.palette_open)
             || (item == Item::Pointer && self.pointer)
+            || (item == Item::Ocr && self.ocr.is_some())
             || item == Item::Mode(self.area)
             || item == Item::Kind(self.kind);
         let base = if active {
@@ -2100,6 +2341,7 @@ impl QueijoApp {
             Item::Redo => paint::icon(fg, Icon::Redo, r.center(), color),
             Item::Save => paint::icon(fg, Icon::Save, r.center(), color),
             Item::Copy => paint::icon(fg, Icon::Copy, r.center(), color),
+            Item::Ocr => paint::icon(fg, Icon::Ocr, r.center(), color),
             Item::Close => paint::icon(fg, Icon::Close, r.center(), color),
             Item::Mode(area) => {
                 let (icon, label) = match area {
@@ -2463,7 +2705,7 @@ impl eframe::App for Shared {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         // The windows only dim the live screen; nothing is opaque but our own UI.
         // Without a compositor they are opaque, and black is what is behind the picture.
-        let opaque = lock(&self.0).frozen;
+        let opaque = lock(&self.0).opaque;
         [0.0, 0.0, 0.0, if opaque { 1.0 } else { 0.0 }]
     }
 }
