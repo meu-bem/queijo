@@ -6,6 +6,8 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-29
+
 ### Added
 - Copy text from the picture: the new text button (or `O`) reads the selection with
   `tesseract`, and you drag over the words to copy them, or copy all of them with `Ctrl+C`.
